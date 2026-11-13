@@ -1,0 +1,72 @@
+  :root {
+    --sky: #efe5cf; --paper: #fdf8ec; --ink: #1e2a45; --muted: #5f6a80; --card: #fdf8ec; --accent: #ff6a3d; --gold: #f2be30; --hot: #e0452b; --good: #2f9a57;
+    --shadow: 4px 4px 0 var(--ink);
+    --pixel: "Jersey 10", "Pixelify Sans", ui-monospace, Menlo, monospace; --sans: "Chakra Petch", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --stripe: repeating-linear-gradient(-45deg, var(--accent) 0 6px, var(--ink) 6px 12px);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--sky); color: var(--ink); }
+  body { font: 500 14px/1.4 var(--sans); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; touch-action: none; cursor: pointer; }
+  canvas { display: block; image-rendering: pixelated; outline: none; }
+
+  /* panels: square, ink-framed, with a hard offset shadow — a broadcast scorebug, not a card */
+  .chip { background: var(--paper); border: 3px solid var(--ink); border-radius: 0; box-shadow: var(--shadow); padding: 10px 14px; }
+  #score { position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); display: grid; gap: 7px; pointer-events: none; min-width: 132px; padding-top: 16px; }
+  #score::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #score .line { display: flex; align-items: baseline; gap: 7px; }
+  #score b { font: 400 46px/.8 var(--pixel); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+  #score .line span { color: var(--muted); font: 700 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #score div span, #score .h, #score .fr { border-radius: 0 !important; }
+  #best { justify-self: start; color: var(--ink); background: var(--gold); border: 2px solid var(--ink); padding: 2px 7px 1px; font: 700 10px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .12em; }
+  #best::before { content: "★ "; }
+  #best:empty { display: none; }
+
+  .hud-top { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: grid; justify-items: center; gap: 10px; z-index: 3; }
+  #clock { font: 400 44px/.8 var(--pixel); font-variant-numeric: tabular-nums; pointer-events: none; padding: 10px 16px 8px; }
+  #clock:empty { display: none; }
+  #clock.low { color: var(--paper); background: var(--hot); animation: blink .5s steps(1) infinite; }
+  @keyframes blink { 50% { background: var(--ink); } }
+
+  .nav { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); display: flex; gap: 10px; z-index: 3; }
+  button { font: inherit; cursor: pointer; }
+  .pill { pointer-events: auto; white-space: nowrap; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 0; padding: 9px 13px 8px; box-shadow: 3px 3px 0 var(--ink); transition: transform .06s, box-shadow .06s; }
+  .pill:hover, .pill:focus-visible { background: var(--gold); outline: none; }
+  .pill:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+  .seg { display: inline-flex; gap: 0; padding: 0; background: var(--paper); border: 2px solid var(--ink); border-radius: 0; box-shadow: 3px 3px 0 var(--ink); }
+  .seg button { font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button:hover { color: var(--ink); background: var(--sky); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
+
+  /* the status line is a ticker: dark band, a coral tag, text that slides in when it changes */
+  .hud { position: fixed; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
+  #bottom { bottom: max(14px, env(safe-area-inset-bottom)); }
+  .ticker { display: flex; align-items: stretch; max-width: min(560px, 100%); background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--shadow); overflow: hidden; }
+  .ticker:has(#status:empty) { visibility: hidden; }
+  .ticker .tag { display: grid; place-items: center; padding: 0 9px; background: var(--accent); color: var(--ink); font: 700 10px/1 var(--sans); letter-spacing: .16em; }
+  .ticker .tag::before { content: ""; width: 7px; height: 7px; margin-bottom: 4px; background: var(--ink); animation: blink2 1s steps(1) infinite; }
+  @keyframes blink2 { 50% { opacity: 0; } }
+  #status { padding: 9px 12px 8px; background: none; border: 0; box-shadow: none; color: var(--paper); font: 600 13px/1.25 var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+  #status.tick { animation: ticker .3s steps(5) both; }
+  @keyframes ticker { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* the rules: a printed rule card with a striped header and square numbers */
+  #rules { width: min(420px, calc(100vw - 28px)); padding: 0 22px 18px; border: 3px solid var(--ink); border-radius: 0; box-shadow: 6px 6px 0 var(--ink); color: var(--ink); background: var(--paper); font: inherit; }
+  #rules::backdrop { background: rgba(30, 42, 69, .45); }
+  #rules::before { content: ""; display: block; height: 10px; margin: 0 -22px 16px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #rules h2 { margin: 0 0 14px; font: 400 40px/.85 var(--pixel); text-transform: uppercase; }
+  #rules h3 { margin: 16px 0 8px; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #rules ol { margin: 0 0 10px; padding: 0; list-style: none; counter-reset: r; }
+  #rules ol li { counter-increment: r; position: relative; padding-left: 34px; margin-bottom: 9px; }
+  #rules ol li::before { content: counter(r); position: absolute; left: 0; top: -1px; width: 22px; height: 22px; display: grid; place-items: center; background: var(--ink); color: var(--gold); font: 400 20px/1 var(--pixel); }
+  #rules ul { margin: 0 0 10px; padding-left: 18px; }
+  #rules p { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+  #rules a { color: inherit; text-underline-offset: 2px; }
+  #rules form { text-align: right; margin-top: 14px; }
+  @media (max-width: 600px) {
+    .hud-top { top: calc(max(14px, env(safe-area-inset-top)) + 84px); }
+    #score b { font-size: 38px; }
+    #status { font-size: 11px; }
+    .ticker .tag { padding: 0 6px; }
+  }

@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Curling</title>
+<!--
+  Curling · Olygames
+
+  Rendering core (orthographic camera, depth buffer, hue-shifted ramps, cast shadows, depth edges,
+  grass tufts and swaying leaves) adapted from Pixel Plays by Amir Mushich:
+  https://github.com/amirmushichge/pixel-plays
+
+  MIT License — Copyright (c) 2026 Amir Mushich
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+  associated documentation files (the "Software"), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge, publish, distribute,
+  sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions: The above copyright notice and this
+  permission notice shall be included in all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+  NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+  DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+  OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&family=Chakra+Petch:wght@500;600;700&family=Pixelify+Sans:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sky: #efe5cf; --paper: #fdf8ec; --ink: #1e2a45; --muted: #5f6a80; --card: #fdf8ec; --accent: #ff6a3d; --gold: #f2be30; --hot: #e0452b; --good: #2f9a57;
+    --shadow: 4px 4px 0 var(--ink);
+    --pixel: "Jersey 10", "Pixelify Sans", ui-monospace, Menlo, monospace; --sans: "Chakra Petch", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --stripe: repeating-linear-gradient(-45deg, var(--accent) 0 6px, var(--ink) 6px 12px);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--sky); color: var(--ink); }
+  body { font: 500 14px/1.4 var(--sans); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; touch-action: none; cursor: pointer; }
+  canvas { display: block; image-rendering: pixelated; outline: none; }
+
+  /* panels: square, ink-framed, with a hard offset shadow — a broadcast scorebug, not a card */
+  .chip { background: var(--paper); border: 3px solid var(--ink); border-radius: 0; box-shadow: var(--shadow); padding: 10px 14px; }
+  #score { position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); display: grid; gap: 7px; pointer-events: none; min-width: 132px; padding-top: 16px; }
+  #score::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #score .line { display: flex; align-items: baseline; gap: 7px; }
+  #score b { font: 400 46px/.8 var(--pixel); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+  #score .line span { color: var(--muted); font: 700 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #score div span, #score .h, #score .fr { border-radius: 0 !important; }
+  #best { justify-self: start; color: var(--ink); background: var(--gold); border: 2px solid var(--ink); padding: 2px 7px 1px; font: 700 10px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .12em; }
+  #best::before { content: "★ "; }
+  #best:empty { display: none; }
+
+  .hud-top { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: grid; justify-items: center; gap: 10px; z-index: 3; }
+  #clock { font: 400 44px/.8 var(--pixel); font-variant-numeric: tabular-nums; pointer-events: none; padding: 10px 16px 8px; }
+  #clock:empty { display: none; }
+  #clock.low { color: var(--paper); background: var(--hot); animation: blink .5s steps(1) infinite; }
+  @keyframes blink { 50% { background: var(--ink); } }
+
+  .nav { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); display: flex; gap: 10px; z-index: 3; }
+  button { font: inherit; cursor: pointer; }
+  .pill { pointer-events: auto; white-space: nowrap; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 0; padding: 9px 13px 8px; box-shadow: 3px 3px 0 var(--ink); transition: transform .06s, box-shadow .06s; }
+  .pill:hover, .pill:focus-visible { background: var(--gold); outline: none; }
+  .pill:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+  .seg { display: inline-flex; gap: 0; padding: 0; background: var(--paper); border: 2px solid var(--ink); border-radius: 0; box-shadow: 3px 3px 0 var(--ink); }
+  .seg button { font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button:hover { color: var(--ink); background: var(--sky); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
+
+  /* the status line is a ticker: dark band, a coral tag, text that slides in when it changes */
+  .hud { position: fixed; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
+  #bottom { bottom: max(14px, env(safe-area-inset-bottom)); }
+  .ticker { display: flex; align-items: stretch; max-width: min(560px, 100%); background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--shadow); overflow: hidden; }
+  .ticker:has(#status:empty) { visibility: hidden; }
+  .ticker .tag { display: grid; place-items: center; padding: 0 9px; background: var(--accent); color: var(--ink); font: 700 10px/1 var(--sans); letter-spacing: .16em; }
+  .ticker .tag::before { content: ""; width: 7px; height: 7px; margin-bottom: 4px; background: var(--ink); animation: blink2 1s steps(1) infinite; }
+  @keyframes blink2 { 50% { opacity: 0; } }
+  #status { padding: 9px 12px 8px; background: none; border: 0; box-shadow: none; color: var(--paper); font: 600 13px/1.25 var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+  #status.tick { animation: ticker .3s steps(5) both; }
+  @keyframes ticker { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* the rules: a printed rule card with a striped header and square numbers */
+  #rules { width: min(420px, calc(100vw - 28px)); padding: 0 22px 18px; border: 3px solid var(--ink); border-radius: 0; box-shadow: 6px 6px 0 var(--ink); color: var(--ink); background: var(--paper); font: inherit; }
+  #rules::backdrop { background: rgba(30, 42, 69, .45); }
+  #rules::before { content: ""; display: block; height: 10px; margin: 0 -22px 16px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #rules h2 { margin: 0 0 14px; font: 400 40px/.85 var(--pixel); text-transform: uppercase; }
+  #rules h3 { margin: 16px 0 8px; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #rules ol { margin: 0 0 10px; padding: 0; list-style: none; counter-reset: r; }
+  #rules ol li { counter-increment: r; position: relative; padding-left: 34px; margin-bottom: 9px; }
+  #rules ol li::before { content: counter(r); position: absolute; left: 0; top: -1px; width: 22px; height: 22px; display: grid; place-items: center; background: var(--ink); color: var(--gold); font: 400 20px/1 var(--pixel); }
+  #rules ul { margin: 0 0 10px; padding-left: 18px; }
+  #rules p { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+  #rules a { color: inherit; text-underline-offset: 2px; }
+  #rules form { text-align: right; margin-top: 14px; }
+  @media (max-width: 600px) {
+    .hud-top { top: calc(max(14px, env(safe-area-inset-top)) + 84px); }
+    #score b { font-size: 38px; }
+    #status { font-size: 11px; }
+    .ticker .tag { padding: 0 6px; }
+  }
+  html { background: #a9d8ef; }
+  body { background: linear-gradient(180deg, #8fcbed 0%, #b6def2 35%, #d8eff3 65%, #f3eedb 100%) fixed; }
+  #sky { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  #sky i { position: absolute; display: block; background-size: 100% 100%; image-rendering: pixelated; }
+  #sky .cloud { left: -220px; animation: drift linear infinite; }
+  @keyframes drift { to { transform: translateX(calc(100vw + 440px)); } }
+  #sky .islet { animation: bob ease-in-out infinite; }
+  #sky .islet.far { opacity: .28; filter: saturate(.4) brightness(1.3) blur(.5px); }
+  #sky .islet.mid { opacity: .45; filter: saturate(.6) brightness(1.18); }
+  #sky .islet.near { opacity: .6; filter: saturate(.8) brightness(1.08); }
+  @media (max-width: 640px) { #sky .islet.near, #sky .islet.mid:nth-of-type(2n) { display: none; } #sky .islet { width: 44px !important; height: 37px !important; } #sky .thing { transform: scale(.8); } }
+  @keyframes bob { 50% { transform: translateY(-9px); } }
+  @media (prefers-reduced-motion: reduce) { #sky i { animation: none !important; } }
+  .over { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; width: min(330px, calc(100vw - 32px)); display: grid; justify-items: center; gap: 10px; padding: 0 22px 20px; border: 3px solid var(--ink); background: var(--ink); color: var(--paper); box-shadow: 6px 6px 0 var(--accent); text-align: center; pointer-events: none; animation: drop .35s steps(6) both; }
+  @keyframes drop { from { transform: translate(-50%, -80%); opacity: 0; } to { transform: translate(-50%, -50%); opacity: 1; } }
+  .over::before { content: "FULL TIME"; display: block; justify-self: stretch; margin: 0 -22px 8px; padding: 14px 0 7px; background: linear-gradient(var(--ink) 0 0) bottom / 100% 0 no-repeat, var(--stripe) top / 100% 7px no-repeat, var(--accent); color: var(--ink); font: 700 11px/1 var(--sans); letter-spacing: .32em; border-bottom: 3px solid var(--ink); }
+  .over[hidden] { display: none; }
+  .over h2 { margin: 0; font: 400 58px/.8 var(--pixel); color: var(--gold); text-transform: uppercase; text-shadow: 3px 3px 0 var(--accent); }
+  .over p { margin: 0; color: var(--paper); font: 600 15px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+  .over small { color: #a9b3c6; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  .over .over-again { pointer-events: auto; background: var(--gold); color: var(--ink); border-color: var(--paper); box-shadow: 3px 3px 0 var(--accent); margin-top: 6px; padding: 11px 18px 10px; }
+  .over .over-again:hover, .over .over-again:focus-visible { background: var(--accent); }  #score b.cpu { color: #40a0b0; margin-left: 10px; }
+  #score b#pts { color: var(--accent); }
+  #ends { display: flex; gap: 4px; align-items: center; font: 600 13px/1 var(--pixel); }
+  #ends span { display: grid; padding: 3px 6px; border-radius: 0; background: var(--sky); color: var(--accent); text-align: center; }
+  #ends span i { font-style: normal; color: #40a0b0; }
+  #ends span.now { box-shadow: inset 0 0 0 2px var(--ink); }
+  #ends em { font-style: normal; color: var(--accent); margin-left: 6px; letter-spacing: 2px; }
+  #stage { z-index: 1; }
+</style>
+</head>
+<body>
+<div id="sky" aria-hidden="true"><i class="cloud" style="top:8%;width:220px;height:110px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2022%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2212%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%224%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:160s;animation-delay:0s;opacity:0.85"></i><i class="cloud" style="top:26%;width:160px;height:97px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2018%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2212%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:130s;animation-delay:-60s;opacity:0.7"></i><i class="cloud" style="top:16%;width:260px;height:110px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2026%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2217%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:190s;animation-delay:-110s;opacity:0.8"></i></div>
+<div id="stage"><canvas id="c" tabindex="0" aria-label="Curling against the computer. Drag back and let go to throw; tap quickly while your stone slides to sweep. S switches the spin."></canvas></div>
+<div id="score" class="chip">
+  <div class="line"><b id="pts">0</b><span>you</span><b id="cpu" class="cpu">0</b><span>cpu</span></div>
+  <div id="ends"></div>
+  <span id="best"></span>
+</div>
+<div class="hud-top"><button id="spin" class="pill" type="button">spin ⟲</button></div>
+<div class="nav">
+  <button id="menu-back" class="pill" type="button" hidden>Menu</button>
+  <button id="rules-open" class="pill" type="button">Rules</button>
+</div>
+<dialog id="rules" aria-labelledby="rules-title">
+  <h2 id="rules-title">Curling</h2>
+  <ol>
+    <li>Three ends against the computer, four stones each. Drag back from anywhere and let go to throw: direction and weight come from the drag. The dotted line shows where it would stop unswept.</li>
+    <li>The stone curls the way it spins. Switch the spin with the button at the top, or S.</li>
+    <li>While your stone slides, tap fast to sweep: it travels further and curls less.</li>
+    <li>A stone must pass the red hog line. After each end, the side with the stone closest to the centre scores one for every stone nearer than the other side's best.</li>
+  </ol>
+  <p>Rendering core adapted from <a href="https://github.com/amirmushichge/pixel-plays" target="_blank" rel="noopener noreferrer">Pixel Plays</a> (MIT).</p>
+  <form method="dialog"><button class="pill">Close</button></form>
+</dialog>
+<div class="hud" id="bottom">
+  <div class="ticker"><span class="tag">LIVE</span><div id="status" role="status" aria-live="polite"></div></div>
+  <button id="mute" class="pill" type="button" aria-pressed="false">sound on</button>
+</div>
+<div id="over" class="over" role="status" hidden>
+  <h2 id="over-title"></h2>
+  <p id="over-text"></p>
+  <button id="again" class="pill over-again" type="button">Play again</button>
+  <small>or tap the field, or press space</small>
+</div>
+<script>
+'use strict';
+const SCENE = { W: 440, H: 300, S: 19, ox: 0, oy: 6 };
+/* ================= renderer (adapted from Pixel Plays engine.js, MIT) ================= */
+const W = SCENE.W, H = SCENE.H, S = SCENE.S;
+const SIN = .5, COS = Math.sqrt(3) / 2, R2 = Math.SQRT2;
+const OX = W / 2 + SCENE.ox, OY = H / 2 + SCENE.oy;
+const SHADOW_X = 1.3, SHADOW_Y = -.12;
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+const image = ctx.createImageData(W, H);
+const pix = new Uint32Array(image.data.buffer);
+const zb = new Float32Array(W * H);
+const bakedPix = new Uint32Array(W * H), bakedZ = new Float32Array(W * H);
+const ground = new Uint8Array(W * H), shadowMask = new Uint8Array(W * H), groundZ = new Float32Array(W * H);
+const kinds = new Uint8Array(W * H), staticShadow = new Uint8Array(W * H);
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + .5) / 16);
+const COOL = [46, 38, 84], WARM = [255, 232, 180];
+const GRASS = [[34, 62, 50], [52, 88, 52], [82, 118, 54], [124, 146, 62], [168, 172, 76]];
+const GRADIENT_Y = COS / (S * SIN), EDGE = .28;
+const KIND_NONE = 0, KIND_COURT = 1, KIND_ASPHALT = 2, KIND_GRASS = 3;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t * t * (3 - 2 * t);
+const rgb = (r, g, b) => (255 << 24 | clamp(b | 0, 0, 255) << 16 | clamp(g | 0, 0, 255) << 8 | clamp(r | 0, 0, 255)) >>> 0;
+const ramps = new WeakMap();
+// hue-shifted ramp: shadows drift to violet, lights drift to warm yellow
+function rampOf(c) {
+  let ramp = ramps.get(c);
+  if (ramp) return ramp;
+  const mix = (m, t, k) => rgb(lerp(c[0] * m, t[0], k), lerp(c[1] * m, t[1], k), lerp(c[2] * m, t[2], k));
+  ramp = [mix(.4, COOL, .34), mix(.62, COOL, .18), mix(.84, COOL, .05), mix(1, WARM, 0), mix(1.1, WARM, .22)];
+  ramps.set(c, ramp);
+  return ramp;
+}
+// closely spaced tones for big flat surfaces, so the dither never reads as a checkerboard
+const toneCache = new WeakMap();
+function tonesOf(c) {
+  let t = toneCache.get(c);
+  if (!t) { t = [.92, .96, 1, 1.04].map(m => rgb(c[0] * m, c[1] * m, c[2] * m)); toneCache.set(c, t); }
+  return t;
+}
+const bayerAt = (ix, iy) => BAYER[(iy & 3) * 4 + (ix & 3)];
+function tint(i, r, g, b) {
+  const c = pix[i];
+  pix[i] = rgb((c & 255) * r, (c >> 8 & 255) * g, (c >> 16 & 255) * b);
+}
+function hash(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+function noise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = ease(x - ix), fy = ease(y - iy);
+  return lerp(lerp(hash(ix, iy), hash(ix + 1, iy), fx), lerp(hash(ix, iy + 1), hash(ix + 1, iy + 1), fx), fy);
+}
+function project(x, y, z) {
+  const u = (x - y) / R2, v = (x + y) / R2;
+  return { sx: OX + u * S, sy: OY + (v * SIN - z * COS) * S, d: v * COS + z * SIN };
+}
+function unproject(sx, sy) {
+  const u = (sx - OX) / S, v = (sy - OY) / (S * SIN);
+  return { x: (u + v) / R2, y: (v - u) / R2 };
+}
+let capture = null;
+function sphere(x, y, z, r, c, mode) {
+  const ramp = rampOf(c);
+  const p = project(x, y, z), rp = Math.max(r * S, .75);
+  const y0 = Math.max(0, Math.floor(p.sy - rp)), y1 = Math.min(H - 1, Math.ceil(p.sy + rp));
+  const x0 = Math.max(0, Math.floor(p.sx - rp)), x1 = Math.min(W - 1, Math.ceil(p.sx + rp));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rp, dy = (iy + .5 - p.sy) / rp, nn = dx * dx + dy * dy;
+    if (nn > 1) continue;
+    const nz = Math.sqrt(1 - nn), d = p.d + r * nz, i = iy * W + ix;
+    if (d <= zb[i]) continue;
+    let l = clamp(-.55 * dx - .6 * dy + .58 * nz, 0, 1);
+    if (mode === 'rough') l += (hash(ix, iy) - .5) * .55;
+    if (dy > .35) l = Math.max(l, .12 + dy * .24);
+    if (capture) { capture.push(ix, iy, d, ramp[clamp(Math.floor(l * 4.4 + .2 + (bayerAt(ix, iy) - .5) * .7), 0, 4)]); continue; }
+    zb[i] = d;
+    if (mode === 'gloss' && l > .9) { pix[i] = rgb(255, 250, 232); continue; }
+    if (mode === 'solid') { pix[i] = ramp[clamp(Math.floor(l * 4.4 + .2), 1, 4)]; continue; }
+    pix[i] = ramp[clamp(Math.floor(l * 4.4 + .2 + (bayerAt(ix, iy) - .5) * .7), 0, 4)];
+  }
+}
+function capsule(a, b, r0, r1, colorOf, mode) {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const n = Math.max(1, Math.ceil(len / (Math.min(r0, r1) * .45)));
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, z = lerp(a[2], b[2], t);
+    sphere(lerp(a[0], b[0], t), lerp(a[1], b[1], t), z, lerp(r0, r1, t), colorOf(z), mode);
+  }
+}
+function box(x0, y0, z0, x1, y1, z1, c, seed = 0) {
+  const ramp = rampOf(c);
+  const paint = (x, y, z, base, grain) => {
+    const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+    if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+    const i = iy * W + ix;
+    if (p.d <= zb[i]) return;
+    zb[i] = p.d;
+    pix[i] = ramp[clamp(Math.floor(base + (grain - .5) * .8 + (bayerAt(ix, iy) - .5) * .4), 0, 4)];
+  };
+  const step = .6 / S, longX = x1 - x0 >= y1 - y0;
+  for (let a = x0; a <= x1; a += step) for (let b = y0; b <= y1; b += step) paint(a, b, z1, 3.4, longX ? noise(a * .8 + seed, b * 9) : noise(a * 9, b * .8 + seed));
+  for (let a = x0; a <= x1; a += step) for (let b = z0; b <= z1; b += step) paint(a, y1, b, 2.3, noise(a * .8 + seed, b * 9));
+  for (let a = y0; a <= y1; a += step) for (let b = z0; b <= z1; b += step) paint(x1, a, b, 1.2, noise(a * .8 + seed, b * 9));
+}
+function plot(x, y, z, color) {
+  const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+  if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+  const i = iy * W + ix;
+  if (p.d <= zb[i]) return;
+  zb[i] = p.d;
+  pix[i] = color;
+}
+function castShadow(x, y, z, r, strength = 1, dither = .4) {
+  const p = project(x + SHADOW_X * z, y + SHADOW_Y * z, 0);
+  const rx = r * S * 1.05, ry = rx * SIN + 1;
+  const y0 = Math.max(0, Math.floor(p.sy - ry)), y1 = Math.min(H - 1, Math.ceil(p.sy + ry));
+  const x0 = Math.max(0, Math.floor(p.sx - rx)), x1 = Math.min(W - 1, Math.ceil(p.sx + rx));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rx, dy = (iy + .5 - p.sy) / ry;
+    if (dx * dx + dy * dy + (bayerAt(ix, iy) - .5) * dither > 1) continue;
+    const i = iy * W + ix;
+    if (shadowMask[i] < strength) shadowMask[i] = strength;
+  }
+}
+function applyShadows(refZ) {
+  for (let i = 0; i < pix.length; i++) {
+    const s = shadowMask[i];
+    if (!s) continue;
+    shadowMask[i] = 0;
+    if (!ground[i] || zb[i] !== refZ[i]) continue;
+    if (s === 1) tint(i, .54, .52, .72);
+    else tint(i, .36, .34, .56);
+  }
+}
+// an object darkens its own silhouette against the ground, and gets a warm rim only over another object
+function shadeEdges() {
+  for (let iy = 1; iy < H - 1; iy++) for (let ix = 1; ix < W - 1; ix++) {
+    const i = iy * W + ix, d = zb[i];
+    if (d < -1e8 || d === groundZ[i]) continue;
+    const a = i - W, b = i + W, c = i - 1, e = i + 1;
+    if (zb[a] === groundZ[a] || zb[b] === groundZ[b] || zb[c] === groundZ[c] || zb[e] === groundZ[e]) {
+      tint(i, .5, .48, .6);
+    } else if (d - zb[a] - GRADIENT_Y > EDGE || d - zb[c] > EDGE) {
+      const p = pix[i];
+      pix[i] = rgb(lerp(p & 255, WARM[0], .3), lerp(p >> 8 & 255, WARM[1], .3), lerp(p >> 16 & 255, WARM[2], .22));
+    } else if (zb[e] - d > EDGE || zb[b] - GRADIENT_Y - d > EDGE) {
+      tint(i, .74, .72, .82);
+    }
+  }
+}
+/* ---------- wind ---------- */
+const WIND_FPS = 8;
+const STILL = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const tufts = [], leaves = [];
+const tuftLit = GRASS.map(c => rgb(...c)), tuftDark = GRASS.map(c => rgb(c[0] * .54, c[1] * .52, c[2] * .72));
+function growGrass() {
+  for (let iy = 3; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+    const i = iy * W + ix;
+    if (kinds[i] !== KIND_GRASS || hash(ix * 3, iy * 5) > .17) continue;
+    tufts.push({
+      ix, iy, i, height: 1 + (hash(ix, iy * 2) * 4 | 0), base: Math.round(noise(ix * .09, iy * .18) * 2.2),
+      phase: ix * .11 + iy * .19 + hash(ix, iy) * .9,
+      bloom: hash(ix * 7, iy) < .022 ? rgb(...(hash(ix, iy) > .5 ? [250, 246, 226] : [240, 200, 84])) : 0,
+    });
+  }
+}
+function drawTufts(t) {
+  for (const tuft of tufts) {
+    const gust = Math.sin(t * .8 + tuft.phase) + .5 * Math.sin(t * 2.1 + tuft.phase * 2.3);
+    const colors = staticShadow[tuft.i] ? tuftDark : tuftLit;
+    for (let k = 1; k <= tuft.height; k++) {
+      const jx = tuft.ix + Math.round(gust * .95 * k / 3), jy = tuft.iy - k;
+      if (jx < 0 || jx >= W) continue;
+      const j = jy * W + jx;
+      if ((kinds[j] !== KIND_GRASS && kinds[j] !== KIND_NONE) || zb[j] !== groundZ[j]) continue;
+      pix[j] = tuft.bloom && k === tuft.height ? tuft.bloom : colors[clamp(tuft.base + k + (gust > 1 ? 1 : 0), 1, 4)];
+    }
+  }
+}
+function drawLeaves(t) {
+  for (const leaf of leaves) {
+    const reach = clamp((leaf.z - 2.5) / 3, .3, 1);
+    const swayX = (Math.sin(t * .9 + leaf.x * .5 + leaf.z * .7) + .55 * Math.sin(t * 2.3 + leaf.k * 1.7)) * reach;
+    const dx = Math.round(swayX * .9), dy = Math.round(Math.sin(t * 1.3 + leaf.y + leaf.k) * reach * .45);
+    const px = leaf.pixels;
+    for (let n = 0; n < px.length; n += 4) {
+      const ix = px[n] + dx, iy = px[n + 1] + dy;
+      if (ix < 0 || iy < 0 || ix >= W || iy >= H) continue;
+      const i = iy * W + ix;
+      if (px[n + 2] <= zb[i]) continue;
+      zb[i] = px[n + 2];
+      pix[i] = px[n + 3];
+    }
+    if (leaf.k % 2 === 0) castShadow(leaf.x + swayX * .12, leaf.y, leaf.z, leaf.r);
+  }
+}
+function bakeOcclusion() {
+  const offsets = [];
+  for (const r of [3, 5]) for (let k = 0; k < 8; k++) offsets.push([Math.round(Math.cos(k * Math.PI / 4) * r), Math.round(Math.sin(k * Math.PI / 4) * r * .7)]);
+  for (let iy = 4; iy < H - 4; iy++) for (let ix = 4; ix < W - 4; ix++) {
+    const i = iy * W + ix;
+    if (!ground[i] || zb[i] !== groundZ[i]) continue;
+    let hits = 0;
+    for (const [ox, oy] of offsets) { const j = (iy + oy) * W + ix + ox; if (zb[j] !== groundZ[j]) hits++; }
+    if (!hits) continue;
+    if (hits >= 8) tint(i, .56, .54, .72);
+    else if (hits / 8 > bayerAt(ix, iy)) tint(i, .74, .72, .84);
+  }
+}
+const CROWN = [[.1, 0, 3.7, 1.6], [-1.4, -.7, 3.3, 1.2], [1.6, .7, 3.4, 1.25], [-.6, 1.1, 3.9, 1.1], [.9, -1.1, 4, 1.1], [.2, .1, 4.9, 1.05]];
+const LEAF_DEEP = [58, 84, 62], LEAF_MID = [100, 126, 78], LEAF_SILVER = [146, 162, 112], BARK = [92, 74, 60];
+function growTree(x, y, scale = 1, count = 420, seed = 0) {
+  const bark = () => BARK;
+  capsule([x, y, 0], [x + .3 * scale, y + .1 * scale, 2.2 * scale], .36 * scale, .22 * scale, bark, 'rough');
+  capsule([x + .3 * scale, y + .1 * scale, 2.2 * scale], [x - .8 * scale, y - .4 * scale, 3.3 * scale], .2 * scale, .13 * scale, bark, 'rough');
+  capsule([x + .3 * scale, y + .1 * scale, 2.2 * scale], [x + 1.2 * scale, y + .4 * scale, 3.4 * scale], .2 * scale, .13 * scale, bark, 'rough');
+  for (let s = 0; s <= 1; s += .1) castShadow(x + .3 * scale * s, y, 2.2 * scale * s, .3 * scale);
+  for (let n = 0; n < count; n++) {
+    const k = n + seed, [cx, cy, cz, spread] = CROWN[n % CROWN.length];
+    const a = hash(k, 7) * 6.283, tilt = hash(k, 8) * 2 - 1, d = Math.cbrt(hash(k, 9)) * spread, flat = Math.sqrt(1 - tilt * tilt);
+    const rx = cx + Math.cos(a) * flat * d, ry = cy + Math.sin(a) * flat * d, rz = cz + tilt * d * .8;
+    const tone = hash(k, 10) + (rz - 4.2) * .22 + (d / spread - .5) * .3;
+    const leaf = tone > .72 ? LEAF_SILVER : tone > .3 ? LEAF_MID : LEAF_DEEP;
+    capture = [];
+    sphere(x + rx * scale, y + ry * scale, rz * scale, (.2 + hash(k, 11) * .22) * scale, leaf, 'rough');
+    leaves.push({ x: x + rx * scale, y: y + ry * scale, z: rz * scale, k, r: .42 * scale, pixels: capture });
+    capture = null;
+  }
+}
+const pendingShadows = [];
+function flushShadows() {
+  for (let i = 0; i < pendingShadows.length; i += 4) {
+    const a = pendingShadows[i], ra = pendingShadows[i + 1], c = pendingShadows[i + 2];
+    const n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1], c[2] - a[2]) / .25));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      castShadow(lerp(a[0], c[0], t), lerp(a[1], c[1], t), lerp(a[2], c[2], t), ra * .9, 1, 0);
+    }
+    if (a[2] < .25) castShadow(a[0], a[1], 0, .2, 2, 0);
+  }
+  pendingShadows.length = 0;
+}
+// the arcade's palette: navy ink, coral signal, and the sky the islands float in
+// empty sky is transparent, so the page's own sky shows through
+const CLEAR = 0;
+const INK = rgb(30, 42, 69), SIGNAL = rgb(255, 106, 61), PAPER = rgb(228, 238, 242);
+function dot(ix, iy, c) { if (ix >= 0 && iy >= 0 && ix < W && iy < H) pix[iy * W + ix] = c; }
+function fit() {
+  const dpr = window.devicePixelRatio || 1;
+  const fitScale = Math.min(innerWidth / W, (innerHeight - 84) / H);
+  // whole device pixels keep every art pixel the same size; when that would waste
+  // more than a sixth of the screen, fill it instead (the unevenness is a pixel at most)
+  const exact = fitScale * dpr, whole = Math.floor(exact);
+  const scale = Math.max(1, whole >= exact * .84 ? whole : exact) / dpr;
+  canvas.style.width = W * scale + 'px';
+  canvas.style.height = H * scale + 'px';
+}
+
+
+/* ================= figures ================= */
+function ik(a, c, l1, l2, bend) {
+  let dx = c[0] - a[0], dy = c[1] - a[1], dz = c[2] - a[2];
+  let d = Math.hypot(dx, dy, dz) || 1e-6;
+  const reach = (l1 + l2) * .995;
+  if (d > reach) { const k = reach / d; dx *= k; dy *= k; dz *= k; d = reach; }
+  const ux = dx / d, uy = dy / d, uz = dz / d;
+  const x = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+  let bx = bend[0], by = bend[1], bz = bend[2];
+  const dt = bx * ux + by * uy + bz * uz;
+  bx -= dt * ux; by -= dt * uy; bz -= dt * uz;
+  const bl = Math.hypot(bx, by, bz) || 1;
+  return {
+    m: [a[0] + ux * x + bx / bl * h, a[1] + uy * x + by / bl * h, a[2] + uz * x + bz / bl * h],
+    e: [a[0] + dx, a[1] + dy, a[2] + dz],
+  };
+}
+function body(crouch, lean) {
+  const hipZ = 1.28 - crouch * .42, hipA = -crouch * .16;
+  return { hipZ, hipA, shA: hipA + Math.sin(lean) * .95, shZ: hipZ + Math.cos(lean) * .95 };
+}
+// flat bands with no dither and a dark silhouette, so figures stay sharp on the textured court
+function player(px, py, yaw, pose, pal) {
+  const fx = Math.cos(yaw), fy = Math.sin(yaw), sx = -fy, sy = fx, base = pose.z || 0;
+  const P = (a, b, c) => [px + fx * a + sx * b, py + fy * a + sy * b, c + base];
+  const add = (a, b, r0, r1, col) => {
+    capsule(a, b, r0, r1, typeof col === 'function' ? col : () => col, 'solid');
+    pendingShadows.push(a, r0, b, r1);
+  };
+  const lean = pose.lean || 0, fr = body(pose.crouch || 0, lean), fwd = [fx, fy, 0];
+  for (const [side, foot] of [[.15, pose.footR || [.1, 0]], [-.15, pose.footL || [-.08, 0]]]) {
+    const [fa, lift] = foot, hip = P(fr.hipA, side, fr.hipZ);
+    const leg = ik(hip, P(fa, side * 1.3, .11 + lift), .62, .6, fwd);
+    add(hip, leg.m, .18, .15, pal.shorts);
+    add(leg.m, leg.e, .12, .1, z => z - base - lift < .36 ? pal.sock : pal.shin || pal.skin);
+    add(leg.e, [leg.e[0] + fx * .17, leg.e[1] + fy * .17, leg.e[2] - .03], .1, .09, pal.shoe);
+  }
+  const waist = P(fr.hipA, 0, fr.hipZ - .04), neck = P(fr.shA, 0, fr.shZ + .06), hz = base + fr.hipZ + .12;
+  add(waist, neck, .29, .32, z => z < hz ? pal.shorts : pal.jersey);
+  const head = P(fr.shA + Math.sin(lean) * .3, 0, fr.shZ + .36);
+  add(neck, head, .11, .12, pal.skin);
+  add(head, head, .24, .24, pal.skin);
+  const hair = [head[0] - fx * .06, head[1] - fy * .06, head[2] + .08];
+  add(hair, hair, .205, .205, pal.hair);
+  for (const [side, hand] of [[.35, pose.hR], [-.35, pose.hL]]) {
+    const sg = Math.sign(side), sh = P(fr.shA, side, fr.shZ - .04);
+    const target = hand ? P(hand[0], hand[1], hand[2]) : P(fr.shA + .04, side * 1.2, fr.shZ - .9);
+    const arm = ik(sh, target, .46, .47, [sx * sg * .7 - fx * .2, sy * sg * .7 - fy * .2, -.7]);
+    add(sh, sh, .14, .14, pal.jersey);
+    add(sh, arm.m, .1, .085, pal.sleeve || pal.skin);
+    add(arm.m, arm.e, .085, .075, pal.skin);
+  }
+  return pose.ball ? P(pose.ball[0], pose.ball[1], pose.ball[2]) : null;
+}
+
+
+/* ================= audio ================= */
+let audio = null, muted = false, noiseBuf = null;
+function ensureAudio() {
+  if (audio) { if (audio.state === 'suspended') audio.resume().catch(() => {}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { audio = new AC(); } catch (e) { audio = null; return; }
+  noiseBuf = audio.createBuffer(1, audio.sampleRate / 2, audio.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function tone(f0, f1, dur, vol, type, delay = 0) {
+  const now = audio.currentTime + delay, g = audio.createGain(), o = audio.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, now);
+  o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+  g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(.0005, now + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(now); o.stop(now + dur + .02);
+}
+function hiss(dur, freq, q, vol, delay = 0) {
+  const now = audio.currentTime + delay, src = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
+  src.buffer = noiseBuf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  g.gain.setValueAtTime(.0005, now);
+  g.gain.linearRampToValueAtTime(vol, now + dur * .25);
+  g.gain.exponentialRampToValueAtTime(.0005, now + dur);
+  src.connect(f).connect(g).connect(audio.destination);
+  src.start(now); src.stop(now + dur + .02);
+}
+
+/* ================= game over ================= */
+/* ================= game over card ================= */
+// shows when a round ends; it stays until the player starts again (tap, Space, or the button)
+const overEl = document.getElementById('over');
+function showOver(title, text) {
+  document.getElementById('over-title').textContent = title;
+  document.getElementById('over-text').textContent = text;
+  overEl.hidden = false;
+}
+function hideOver() { overEl.hidden = true; }
+function replayGame() { if (G.phase === 'over' && G.phaseT > .6) reset(); }
+document.getElementById('again').addEventListener('click', e => { e.stopPropagation(); replayGame(); });
+// any reset (tap, Space, the button) moves the game off 'over', so the card goes with it
+setInterval(() => { if (!overEl.hidden && G.phase !== 'over') overEl.hidden = true; }, 120);
+
+// the status ticker slides each new message in
+(() => {
+  const st = document.getElementById('status');
+  if (!st) return;
+  new MutationObserver(() => { st.classList.remove('tick'); void st.offsetWidth; st.classList.add('tick'); }).observe(st, { childList: true, characterData: true, subtree: true });
+})();
+
+/* ================= the sheet ================= */
+const HACK_X = 8.4, TEE_X = -6.2, BACK_X = -8.6, HOG_X = -2.6, SW = 1.65, SR = .15, HOUSE = 1.25;
+const MU = .5, MU_SWEEP = .32, CURL = .55, ENDS = 3, STONES = 4;
+const ISLAND = { cx: 0, ax: 11.2, ay: 5.4 };
+const PINE = [44, 92, 70], PINE_LIGHT = [70, 124, 88], SNOW_W = [236, 242, 248], WOOD = [150, 112, 76], STEEL = [96, 104, 122];
+const FANS = [[64, 160, 176], [242, 190, 48], [150, 94, 196], [214, 58, 62], [84, 166, 90], [255, 106, 61], [64, 160, 176], [242, 190, 48]];
+const KIND_ICE = 4;
+const ICE_C = [232, 240, 246], RING_BLUE = [64, 120, 200], RING_RED = [214, 58, 62], GRANITE = [128, 132, 142];
+const YOU = [255, 106, 61], CPU = [64, 160, 176];
+const THROWER = { jersey: YOU, shorts: [36, 44, 66], shin: [36, 44, 66], sock: [36, 44, 66], skin: [222, 172, 132], hair: [92, 60, 36], shoe: [36, 44, 66], sleeve: YOU };
+const CPU_PAL = { jersey: CPU, shorts: [36, 44, 66], shin: [36, 44, 66], sock: [36, 44, 66], skin: [196, 144, 106], hair: [36, 28, 24], shoe: [36, 44, 66], sleeve: CPU };
+
+function pick(tones, v, ix, iy, dither = .6) { return tones[clamp(Math.floor(v * 4 + (bayerAt(ix, iy) - .5) * dither), 0, 3)]; }
+function islandEdge(x, y) { return Math.pow(Math.pow(Math.abs(x - ISLAND.cx) / ISLAND.ax, 4) + Math.pow(Math.abs(y) / ISLAND.ay, 4), .25); }
+function groundColor(x, y, ix, iy, i) {
+  const edge = islandEdge(x, y), rough = edge + (noise(x * 1.3, y * 1.3) - .5) * .12;
+  if (rough > 1.04) return 0;
+  if (rough > .93 && hash(ix, iy) < (rough - .93) / .11) return 0;
+  const ay = Math.abs(y);
+  if (x > BACK_X - .05 && x < HACK_X + .9 && ay < SW + .2) {
+    kinds[i] = KIND_ICE;
+    if (ay > SW) return rgb(150, 112, 76);
+    const d = Math.hypot(x - TEE_X, y);
+    if (Math.abs(x - TEE_X) < .03 || (Math.abs(y) < .03 && x < HACK_X)) return rgb(60, 70, 96);
+    if (Math.abs(x - HOG_X) < .06 || Math.abs(x - BACK_X) < .03) return rgb(214, 58, 62);
+    if (d < HOUSE) {
+      if (d > HOUSE * .67) return pick(tonesOf(RING_BLUE), .55, ix, iy, .3);
+      if (d > HOUSE * .45) return pick(tonesOf(ICE_C), .6, ix, iy, .3);
+      if (d > HOUSE * .18) return pick(tonesOf(RING_RED), .55, ix, iy, .3);
+    }
+    if (Math.abs(x - HACK_X) < .12 && Math.abs(y) < .2) return rgb(40, 44, 56);
+    return pick(tonesOf(ICE_C), .55 + (noise(x * 3, y * 3) - .5) * .3 + (hash(ix, iy) > .97 ? .4 : 0), ix, iy, .35);
+  }
+  kinds[i] = KIND_GRASS;
+  const t = noise(x * .9, y * .9) * 1.15 + (hash(ix, iy) - .5) * .55 - .08;
+  return rgb(...[[206, 220, 236], [222, 232, 244], [236, 242, 248], [244, 248, 252]][clamp(Math.floor(t * 4.2), 0, 3)]);
+}
+function bake() {
+  zb.fill(-1e9); pix.fill(CLEAR);
+  for (let iy = 0; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+    const g = unproject(ix + .5, iy + .5), i = iy * W + ix, c = groundColor(g.x, g.y, ix, iy, i);
+    if (!c) continue;
+    pix[i] = c; ground[i] = 1;
+    zb[i] = (g.x + g.y) / R2 * COS;
+  }
+  groundZ.set(zb);
+  // low boards along both sides and the back
+  for (const sg of [-1, 1]) box(BACK_X - .05, sg > 0 ? SW : -SW - .12, 0, HACK_X + .9, sg > 0 ? SW + .12 : -SW, .18, [150, 112, 76], sg + 3);
+  box(BACK_X - .17, -SW - .12, 0, BACK_X - .05, SW + .12, .18, [150, 112, 76], 5);
+  for (let x = BACK_X - .05; x < HACK_X + .9; x += .2) castShadow(x, -SW - .06, .12, .1);
+  scenery();
+  bakeOcclusion();
+  staticShadow.set(shadowMask);
+  applyShadows(groundZ);
+  bakedPix.set(pix);
+  bakedZ.set(zb);
+}
+function pine(x, y, s) {
+  capsule([x, y, 0], [x, y, .6 * s], .1 * s, .08 * s, () => [92, 70, 54], 'rough');
+  for (let k = 0; k < 5; k++) {
+    const z = (.5 + k * .55) * s, r = (1.05 - k * .19) * s;
+    for (let a = 0; a < 6.283; a += .6 / (k + 1.5)) {
+      const rr = r * (.55 + hash(k * 7 + a, x) * .45);
+      sphere(x + Math.cos(a) * rr * .6, y + Math.sin(a) * rr * .6, z, .26 * s, hash(a, k) > .62 ? SNOW_W : k % 2 ? PINE : PINE_LIGHT, 'rough');
+    }
+    sphere(x, y, z + .18 * s, .3 * s, k === 4 ? SNOW_W : PINE, 'rough');
+    castShadow(x, y, z, r * .6);
+  }
+}
+function lamp(x, y) {
+  capsule([x, y, 0], [x, y, 2.1], .05, .05, () => STEEL, 'solid');
+  capsule([x, y, 2.1], [x + .25, y, 2.2], .04, .04, () => STEEL, 'solid');
+  sphere(x + .3, y, 2.15, .12, [255, 232, 160], 'solid');
+  for (let z = 0; z < 2.1; z += .2) castShadow(x, y, z, .06);
+}
+function flag(x, y, c) {
+  capsule([x, y, 0], [x, y, 1.9], .035, .035, () => [230, 230, 226], 'solid');
+  for (let a = 0; a < .7; a += .06) for (let b = 0; b < .4; b += .06) plot(x - a, y, 1.85 - b - Math.sin(a * 5) * .04, rgb(...(b < .2 ? c : [244, 244, 240])));
+  for (let z = 0; z < 1.9; z += .25) castShadow(x, y, z, .05);
+}
+function snowman(x, y) {
+  sphere(x, y, .3, .32, SNOW_W, 'rough'); sphere(x, y, .78, .23, SNOW_W, 'rough'); sphere(x, y, 1.12, .16, SNOW_W, 'rough');
+  capsule([x + .1, y + .1, 1.13], [x + .3, y + .2, 1.1], .03, .01, () => [255, 106, 61], 'solid');
+  capsule([x, y, 1.25], [x, y, 1.42], .12, .1, () => [30, 42, 69], 'solid');
+  capsule([x, y - .2, .82], [x, y - .55, 1.05], .025, .02, () => [92, 70, 54], 'solid');
+  castShadow(x, y, .6, .35);
+}
+function scenery() {
+  // the stand along the far side, two steps of benches
+  box(-6, -4.0, 0, 3, -3.5, .3, [196, 160, 112], 21);
+  box(-6, -4.6, 0, 3, -4.0, .6, [196, 160, 112], 22);
+  box(-6, -4.75, 0, 3, -4.6, 1.15, [170, 132, 92], 23);
+  // the scoreboard behind the house
+  capsule([-9.2, -2.6, 0], [-9.2, -2.6, 1.6], .07, .07, () => STEEL, 'solid');
+  capsule([-9.2, -1.2, 0], [-9.2, -1.2, 1.6], .07, .07, () => STEEL, 'solid');
+  box(-9.35, -2.8, 1.5, -9.15, -1.0, 2.5, [30, 42, 69], 31);
+  for (let k = 0; k < 6; k++) for (const [row, c] of [[2.25, YOU], [1.85, CPU]]) box(-9.16, -2.6 + k * .27, row - .12, -9.12, -2.42 + k * .27, row + .1, k < 3 ? c : [70, 84, 110], k);
+  // a rack of spare stones by the hack
+  box(9.6, -2.9, 0, 10.6, -2.1, .12, WOOD, 41);
+  for (let k = 0; k < 4; k++) for (const t of [0, 1]) {
+    const x = 9.8 + k * .23, y = -2.7 + t * .4;
+    sphere(x, y, .2, SR, GRANITE, 'solid'); sphere(x, y, .3, SR * .7, t ? CPU : YOU, 'solid');
+  }
+  for (const [x, y] of [[-7.6, 2.5], [-1.2, 2.5], [5.2, 2.5], [-1.2, -2.6], [6.2, -2.6]]) lamp(x, y);
+  flag(9.4, 2.6, YOU); flag(9.9, 2.2, CPU); flag(-8.8, 2.9, [242, 190, 48]);
+  snowman(2.2, 3.4);
+  for (const [x, y, s] of [[-10.2, 3.4, .75], [-4.4, 4.1, .62], [-2.9, 3.7, .5], [7.2, 3.9, .7], [10.4, -4.0, .65], [5.6, -4.2, .55], [-9.8, -3.9, .6], [9.2, 4.2, .5], [0, 4.5, .45]]) pine(x, y, s);
+}
+function drawFans() {
+  // the crowd stands up and cheers when you score
+  const cheer = G.popups.some(p => !p.team && p.t < 2);
+  FANS.forEach((c, k) => {
+    const row = k % 2, x = -5.4 + k * 1.15 + row * .2, y = row ? -4.3 : -3.75, seat = row ? .6 : .3;
+    const up = cheer && Math.sin(G.time * 9 + k) > -.3;
+    const fr = body(up ? .05 : .95, up ? .02 : .1);
+    const arms = up ? { hR: [fr.shA + .05, .5, fr.shZ + .8], hL: [fr.shA + .05, -.5, fr.shZ + .8] } : { hR: [.45, .3, .75], hL: [.45, -.3, .75] };
+    const pose = up ? { z: seat - .05, crouch: .05, lean: .02, ...arms } : { z: seat - .45, crouch: .95, lean: .1, footR: [.55, .05], footL: [.55, .05], ...arms };
+    player(x, y, Math.PI / 2 + .1, pose, { jersey: c, shorts: [36, 44, 66], shin: [36, 44, 66], sock: [36, 44, 66], skin: k % 3 ? [222, 172, 132] : [176, 124, 92], hair: [70, 48, 34], shoe: [36, 44, 66], sleeve: c });
+  });
+}
+function drawStone(s) {
+  if (s.out) return;
+  for (let z = .02; z <= .12; z += .025) sphere(s.x, s.y, z, SR * (z > .1 ? .85 : 1), GRANITE, 'solid');
+  sphere(s.x, s.y, .14, SR * .75, s.team ? CPU : YOU, 'solid');
+  const a = s.rot;
+  capsule([s.x - Math.cos(a) * .05, s.y - Math.sin(a) * .05, .2], [s.x + Math.cos(a) * .07, s.y + Math.sin(a) * .07, .2], .03, .03, () => s.team ? CPU : YOU, 'solid');
+  castShadow(s.x, s.y, .06, SR, 1, 0);
+}
+
+/* ================= pixel text ================= */
+const FONT = {
+  '0': ['XXX', 'X.X', 'X.X', 'X.X', 'XXX'], '1': ['.X.', 'XX.', '.X.', '.X.', 'XXX'], '2': ['XXX', '..X', 'XXX', 'X..', 'XXX'],
+  '3': ['XXX', '..X', '.XX', '..X', 'XXX'], '4': ['X.X', 'X.X', 'XXX', '..X', '..X'], '+': ['...', '.X.', 'XXX', '.X.', '...'],
+};
+function drawText(text, cx, top, fill, k = 2) {
+  const cells = [];
+  let x = Math.round(cx - (text.length * 4 - 1) * k / 2);
+  for (const ch of text) {
+    const g = FONT[ch];
+    if (g) g.forEach((row, yy) => [...row].forEach((v, xx) => { if (v === 'X') for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) cells.push([x + xx * k + a, top + yy * k + b]); }));
+    x += 4 * k;
+  }
+  for (const [px, py] of cells) for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) dot(px + ox, py + oy, INK);
+  for (const [px, py] of cells) dot(px, py, fill);
+}
+
+/* ================= game state ================= */
+const BEST_KEY = 'curling-wins';
+function load() { try { return +localStorage.getItem(BEST_KEY) || 0; } catch (e) { return 0; } }
+function save(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) { /* storage may be off */ } }
+const G = { time: 0, wins: load(), spin: 1 };
+function reset() {
+  Object.assign(G, { end: 0, scores: [[], []], popups: [], hammer: 1 });
+  startEnd();
+}
+function startEnd() {
+  G.stones = []; G.thrown = 0;
+  // the side without the hammer throws first
+  G.turn = 1 - G.hammer;
+  nextThrow();
+  renderHud();
+}
+function setPhase(p) { G.phase = p; G.phaseT = 0; }
+function nextThrow() {
+  if (G.thrown >= STONES * 2) return scoreEnd();
+  G.turn = (G.thrown % 2 === 0) ? 1 - G.hammer : G.hammer;
+  G.live = null;
+  setPhase(G.turn === 0 ? 'aim' : 'cpu');
+  setStatus(G.turn === 0 ? 'your stone · drag back and let go · tap fast to sweep' : 'the computer is throwing');
+  renderHud();
+}
+
+/* ================= physics ================= */
+function stepStone(s, dt, sweep) {
+  const v = Math.hypot(s.vx, s.vy);
+  if (v < .005) { s.vx = s.vy = 0; return; }
+  const mu = sweep ? MU_SWEEP : MU, n = Math.max(0, v - mu * dt);
+  // curl: the stone drifts the way it spins, more as it slows
+  const curl = s.spin * CURL * (sweep ? .5 : 1) / Math.max(.6, v) * .35;
+  s.vx *= n / v; s.vy *= n / v;
+  const ux = s.vx / (n || 1), uy = s.vy / (n || 1);
+  s.vx += -uy * curl * dt; s.vy += ux * curl * dt;
+  s.x += s.vx * dt; s.y += s.vy * dt;
+  s.rot += s.spin * dt * 1.5;
+  if (Math.abs(s.y) > SW - SR || s.x < BACK_X - SR) { s.out = true; s.vx = s.vy = 0; }
+}
+function collideStones() {
+  const a = G.stones.filter(s => !s.out);
+  for (let i = 0; i < a.length; i++) for (let k = i + 1; k < a.length; k++) {
+    const p = a[i], q = a[k], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+    if (d >= SR * 2 || d < 1e-6) continue;
+    const nx = dx / d, ny = dy / d, o = (SR * 2 - d) / 2;
+    p.x -= nx * o; p.y -= ny * o; q.x += nx * o; q.y += ny * o;
+    const rel = (p.vx - q.vx) * nx + (p.vy - q.vy) * ny;
+    if (rel <= 0) continue;
+    const j = rel * .95;
+    p.vx -= j * nx; p.vy -= j * ny; q.vx += j * nx; q.vy += j * ny;
+    sound('clack', Math.min(1, rel / 2));
+  }
+}
+function release(dir, speed, spin, team) {
+  const s = { x: HACK_X - .4, y: 0, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, spin, team, rot: 0, out: false };
+  G.stones.push(s); G.live = s; G.thrown++;
+  setPhase('slide');
+  sound('slide');
+}
+// a ghost run of one stone alone, to find where a throw would stop
+function ghost(dir, speed, spin) {
+  const s = { x: HACK_X - .4, y: 0, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, spin, rot: 0 };
+  for (let i = 0; i < 3000 && Math.hypot(s.vx, s.vy) > .005 && !s.out; i++) stepStone(s, 1 / 60, false);
+  return s;
+}
+function cpuThrow() {
+  // aim for the button, or knock out the player's best stone if it sits closest
+  const mine = G.stones.filter(s => !s.out && s.team === 0 && Math.hypot(s.x - TEE_X, s.y) < HOUSE);
+  const best = mine.sort((a, b) => Math.hypot(a.x - TEE_X, a.y) - Math.hypot(b.x - TEE_X, b.y))[0];
+  const theirs = G.stones.filter(s => !s.out && s.team === 1).map(s => Math.hypot(s.x - TEE_X, s.y));
+  const takeout = best && (!theirs.length || Math.hypot(best.x - TEE_X, best.y) < Math.min(...theirs));
+  const target = takeout ? [best.x, best.y] : [TEE_X + (Math.random() - .5) * .3, (Math.random() - .5) * .3];
+  const spin = Math.random() < .5 ? 1 : -1;
+  let bestDir = Math.PI, bestSpeed = 3, bestErr = 1e9;
+  const dist = HACK_X - .4 - target[0];
+  const base = Math.sqrt(2 * MU * dist);
+  for (let a = -.08; a <= .08; a += .004) {
+    const dir = Math.PI + a;
+    const sp = takeout ? base * 1.45 : base;
+    const g = ghost(dir, sp, spin);
+    const err = takeout ? Math.abs(lineY(dir, sp, spin, target[0]) - target[1]) : Math.hypot(g.x - target[0], g.y - target[1]);
+    if (err < bestErr) { bestErr = err; bestDir = dir; bestSpeed = sp; }
+  }
+  // even the computer is not perfect
+  release(bestDir + (Math.random() - .5) * .016, bestSpeed * (1 + (Math.random() - .5) * .07), spin, 1);
+}
+function lineY(dir, speed, spin, x) {
+  const s = { x: HACK_X - .4, y: 0, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, spin, rot: 0 };
+  for (let i = 0; i < 3000 && s.x > x && Math.hypot(s.vx, s.vy) > .005 && !s.out; i++) stepStone(s, 1 / 60, false);
+  return s.y;
+}
+
+/* ================= scoring ================= */
+function scoreEnd() {
+  const live = G.stones.filter(s => !s.out).map(s => ({ team: s.team, d: Math.hypot(s.x - TEE_X, s.y) })).filter(s => s.d < HOUSE + SR).sort((a, b) => a.d - b.d);
+  let team = -1, pts = 0;
+  if (live.length) { team = live[0].team; for (const s of live) { if (s.team !== team) break; pts++; } }
+  G.scores[0].push(team === 0 ? pts : 0); G.scores[1].push(team === 1 ? pts : 0);
+  if (team >= 0) G.popups.push({ text: '+' + pts, t: 0, team });
+  // the side that scores gives the hammer away
+  if (team >= 0) G.hammer = 1 - team;
+  setStatus(team < 0 ? 'blank end · nobody in the house' : (team === 0 ? 'you score ' : 'the computer scores ') + pts);
+  sound(team === 0 ? 'cheer' : 'end');
+  setPhase('endover');
+  renderHud();
+}
+const totals = () => [G.scores[0].reduce((a, b) => a + b, 0), G.scores[1].reduce((a, b) => a + b, 0)];
+function finish() {
+  setPhase('over');
+  const [a, b] = totals();
+  if (a > b) { G.wins++; save(G.wins); }
+  setStatus((a > b ? 'you win ' : a < b ? 'the computer wins ' : 'a draw · ') + a + '–' + b + ' · tap to play again');
+  showOver(a > b ? 'You win!' : a < b ? 'Computer wins' : 'Draw', 'you ' + a + ' · computer ' + b + (a > b ? ' · wins ' + G.wins : ''));
+  renderHud();
+}
+
+/* ================= update ================= */
+function update(dt) {
+  G.time += dt; G.phaseT += dt;
+  if (G.phase === 'cpu' && G.phaseT > 1.1) cpuThrow();
+  G.sweepHeat = Math.max(0, (G.sweepHeat || 0) - dt * 2.2);
+  const sweeping = G.live && G.live.team === 0 && G.sweepHeat > .4;
+  const N = 6, h = dt / N;
+  for (let s = 0; s < N; s++) {
+    for (const st of G.stones) if (!st.out) stepStone(st, h, st === G.live && sweeping);
+    collideStones();
+  }
+  if (G.phase === 'slide') {
+    const moving = G.stones.some(s => !s.out && Math.hypot(s.vx, s.vy) > .01);
+    if (G.live && !G.live.out && G.live.x > HOG_X && !moving) { G.live.out = true; setStatus('did not reach the hog line · stone removed'); }
+    if (!moving && G.phaseT > .5) { setPhase('rest'); }
+  }
+  if (G.phase === 'rest' && G.phaseT > .7) nextThrow();
+  if (G.phase === 'endover' && G.phaseT > 2.4) { G.end++; if (G.end >= ENDS) finish(); else startEnd(); }
+  for (const p of G.popups) p.t += dt;
+  G.popups = G.popups.filter(p => p.t < 2);
+}
+
+/* ================= drawing ================= */
+function draw() {
+  pix.set(bakedPix);
+  zb.set(bakedZ);
+  // the one figure on the ice: the thrower at the hack
+  const thrower = G.turn === 0 ? THROWER : CPU_PAL;
+  const lunge = G.phase === 'slide' && G.phaseT < 1;
+  player(HACK_X + .2, .35, Math.PI, { crouch: lunge ? .55 : .3, lean: lunge ? .7 : .3, footR: [lunge ? .5 : .1, 0], footL: [lunge ? -.6 : -.1, 0] }, thrower);
+  // while sweeping, the ice in front of the stone shows the brush marks
+  const sw = G.live;
+  if (sw && !sw.out && sw.team === 0 && G.phase === 'slide' && G.sweepHeat > .4) {
+    for (let k = 0; k < 14; k++) {
+      const ahead = .5 + (k % 7) * .18, side = Math.sin(G.time * 26 + k * 1.7) * .3;
+      const q = project(sw.x + ahead, sw.y + side, .02);
+      dot(Math.round(q.sx), Math.round(q.sy), k & 1 ? PAPER : rgb(200, 216, 230));
+    }
+  }
+  drawFans();
+  for (const st of G.stones) drawStone(st);
+  if (G.phase === 'aim' && !G.drag) drawStone({ x: HACK_X - .4, y: 0, team: 0, rot: 0 });
+  flushShadows();
+  applyShadows(bakedZ);
+  shadeEdges();
+  if (G.phase === 'aim' && G.drag) drawAim();
+  const top = project(TEE_X, 0, 1.6);
+  for (const p of G.popups) if (!(p.t > 1.6 && Math.floor(p.t * 14) % 2)) drawText(p.text, top.sx, Math.round(top.sy - p.t * 8), p.team ? rgb(...CPU) : SIGNAL, 3);
+  ctx.putImageData(image, 0, 0);
+}
+function dragShot() {
+  const d = G.drag, du = d.dx / S, dv = d.dy / (S * SIN);
+  const wx = (du + dv) / R2, wy = (dv - du) / R2;
+  const dir = clamp(Math.atan2(-wy, -wx), Math.PI - .12, Math.PI + .12) * (Math.atan2(-wy, -wx) < 0 ? 1 : 1);
+  const a = Math.atan2(-wy, -wx), dirC = a > 0 ? clamp(a, Math.PI - .12, Math.PI) : clamp(a + Math.PI * 2, Math.PI, Math.PI + .12);
+  return { dir: dirC, speed: clamp(Math.hypot(d.dx, d.dy) / 50, 0, 1) * 4.6 };
+}
+function drawAim() {
+  const sh = dragShot(), g = { x: HACK_X - .4, y: 0, vx: Math.cos(sh.dir) * sh.speed, vy: Math.sin(sh.dir) * sh.speed, spin: G.spin, rot: 0 };
+  // the path the stone would take unswept, to where it would stop
+  let k = 0;
+  while (k++ < 4000 && Math.hypot(g.vx, g.vy) > .005 && !g.out) {
+    stepStone(g, 1 / 60, false);
+    if (k % 14 === 0) {
+      const p = project(g.x, g.y, .02), x = Math.round(p.sx), y = Math.round(p.sy);
+      for (const [ox, oy] of [[-1, 0], [2, 0], [-1, 1], [2, 1], [0, -1], [1, -1], [0, 2], [1, 2]]) dot(x + ox, y + oy, INK);
+      for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(x + ox, y + oy, PAPER);
+    }
+  }
+  const p = project(g.x, g.y, .02), cx = Math.round(p.sx), cy = Math.round(p.sy);
+  for (let a = 0; a < 6.283; a += .15) for (let o = -1; o <= 1; o++) dot(Math.round(cx + Math.cos(a) * 5) + o, Math.round(cy + Math.sin(a) * 3), g.out ? rgb(150, 156, 170) : SIGNAL);
+}
+
+/* ================= hud ================= */
+const nodes = { you: document.getElementById('pts'), cpu: document.getElementById('cpu'), ends: document.getElementById('ends'), spin: document.getElementById('spin'), best: document.getElementById('best'), status: document.getElementById('status') };
+function renderHud() {
+  const [a, b] = totals();
+  nodes.you.textContent = a; nodes.cpu.textContent = b;
+  let h = '';
+  for (let e = 0; e < ENDS; e++) h += '<span class="' + (e === G.end && G.phase !== 'over' ? 'now' : '') + '">' + (G.scores[0][e] ?? '·') + '<i>' + (G.scores[1][e] ?? '·') + '</i></span>';
+  const left = STONES - Math.ceil(G.stones.filter(s => s.team === 0).length);
+  nodes.ends.innerHTML = h + '<em>' + '●'.repeat(Math.max(0, left)) + '</em>';
+  nodes.spin.textContent = G.spin > 0 ? 'spin ⟲' : 'spin ⟳';
+  nodes.best.textContent = G.wins ? 'wins ' + G.wins : '';
+}
+let statusText = '';
+function setStatus(text) { if (text !== statusText) { statusText = text; nodes.status.textContent = text; } }
+
+/* ================= input ================= */
+const stage = document.getElementById('stage'), rules = document.getElementById('rules');
+function scale() { const r = canvas.getBoundingClientRect(); return W / r.width; }
+function sweepTap() { if (G.phase === 'slide' && G.live && G.live.team === 0) { G.sweepHeat = Math.min(1.4, (G.sweepHeat || 0) + .35); sound('sweep'); } }
+stage.addEventListener('pointerdown', e => {
+  if (e.button > 0) return;
+  ensureAudio();
+  try { stage.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+  canvas.focus({ preventScroll: true });
+  if (G.phase === 'over') { if (G.phaseT > .6) reset(); return; }
+  if (G.phase === 'aim') G.drag = { x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
+  else sweepTap();
+});
+stage.addEventListener('pointermove', e => { if (G.drag) { const k = scale(); G.drag.dx = (e.clientX - G.drag.x) * k; G.drag.dy = (e.clientY - G.drag.y) * k; } });
+stage.addEventListener('pointerup', () => {
+  if (!G.drag) return;
+  const sh = dragShot(); G.drag = null;
+  if (G.phase === 'aim' && sh.speed > .5) release(sh.dir, sh.speed, G.spin, 0);
+});
+stage.addEventListener('pointercancel', () => { G.drag = null; });
+nodes.spin.addEventListener('click', e => { e.stopPropagation(); G.spin = -G.spin; nodes.spin.blur(); renderHud(); });
+addEventListener('keydown', e => {
+  if (rules.open || e.target.tagName === 'BUTTON') return;
+  if (e.key === 's' || e.key === 'S') { G.spin = -G.spin; renderHud(); return; }
+  if (e.key !== ' ' && e.key !== 'Enter') return;
+  e.preventDefault(); ensureAudio();
+  if (G.phase === 'over') { if (G.phaseT > .6) reset(); return; }
+  sweepTap();
+});
+document.getElementById('rules-open').addEventListener('click', () => rules.showModal());
+rules.addEventListener('click', e => { if (e.target === rules) rules.close(); });
+rules.addEventListener('close', () => canvas.focus({ preventScroll: true }));
+
+/* ================= sound ================= */
+function sound(kind, amt = .6) {
+  if (!audio || muted) return;
+  if (kind === 'slide') hiss(2.4, 500, .5, .07);
+  else if (kind === 'clack') { tone(1400, 900, .08, .1 + amt * .15, 'triangle'); hiss(.04, 3000, 1, .1); }
+  else if (kind === 'sweep') hiss(.08, 3500, .8, .05);
+  else if (kind === 'cheer') { tone(523, 523, .1, .05, 'triangle'); tone(784, 784, .2, .05, 'triangle', .1); }
+  else if (kind === 'end') tone(330, 260, .3, .05, 'triangle');
+}
+const muteButton = document.getElementById('mute');
+muteButton.addEventListener('click', () => { muteButton.blur(); muted = !muted; muteButton.textContent = muted ? 'sound off' : 'sound on'; muteButton.setAttribute('aria-pressed', String(muted)); });
+
+/* ================= boot ================= */
+addEventListener('resize', fit);
+fit();
+bake();
+reset();
+let last = performance.now();
+function frame(now) { update(Math.min(.04, (now - last) / 1000)); last = now; draw(); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+window.__curl = { G, update, draw, release, ghost, cpuThrow, TEE_X, HACK_X };
+
+</script>
+<script>
+(() => {
+  if (window.parent === window) return;
+  const back = document.getElementById('menu-back');
+  back.hidden = false;
+  const leave = () => window.parent.postMessage({ type: 'pixel-sports-menu' }, '*');
+  back.addEventListener('click', leave);
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) leave(); });
+})();
+</script>
+</body>
+</html>

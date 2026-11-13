@@ -1,0 +1,1008 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rifle Range</title>
+<!--
+  Rifle Range · Olygames
+
+  Rendering core (orthographic camera, depth buffer, hue-shifted ramps, cast shadows, depth edges,
+  grass tufts and swaying leaves) adapted from Pixel Plays by Amir Mushich:
+  https://github.com/amirmushichge/pixel-plays
+
+  MIT License — Copyright (c) 2026 Amir Mushich
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+  associated documentation files (the "Software"), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge, publish, distribute,
+  sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions: The above copyright notice and this
+  permission notice shall be included in all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+  NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+  DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+  OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&family=Chakra+Petch:wght@500;600;700&family=Pixelify+Sans:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sky: #efe5cf; --paper: #fdf8ec; --ink: #1e2a45; --muted: #5f6a80; --card: #fdf8ec; --accent: #ff6a3d; --gold: #f2be30; --hot: #e0452b; --good: #2f9a57;
+    --shadow: 4px 4px 0 var(--ink);
+    --pixel: "Jersey 10", "Pixelify Sans", ui-monospace, Menlo, monospace; --sans: "Chakra Petch", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --stripe: repeating-linear-gradient(-45deg, var(--accent) 0 6px, var(--ink) 6px 12px);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--sky); color: var(--ink); }
+  body { font: 500 14px/1.4 var(--sans); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; touch-action: none; cursor: pointer; }
+  canvas { display: block; image-rendering: pixelated; outline: none; }
+
+  /* panels: square, ink-framed, with a hard offset shadow — a broadcast scorebug, not a card */
+  .chip { background: var(--paper); border: 3px solid var(--ink); border-radius: 0; box-shadow: var(--shadow); padding: 10px 14px; }
+  #score { position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); display: grid; gap: 7px; pointer-events: none; min-width: 132px; padding-top: 16px; }
+  #score::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #score .line { display: flex; align-items: baseline; gap: 7px; }
+  #score b { font: 400 46px/.8 var(--pixel); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+  #score .line span { color: var(--muted); font: 700 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #score div span, #score .h, #score .fr { border-radius: 0 !important; }
+  #best { justify-self: start; color: var(--ink); background: var(--gold); border: 2px solid var(--ink); padding: 2px 7px 1px; font: 700 10px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .12em; }
+  #best::before { content: "★ "; }
+  #best:empty { display: none; }
+
+  .hud-top { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: grid; justify-items: center; gap: 10px; z-index: 3; }
+  #clock { font: 400 44px/.8 var(--pixel); font-variant-numeric: tabular-nums; pointer-events: none; padding: 10px 16px 8px; }
+  #clock:empty { display: none; }
+  #clock.low { color: var(--paper); background: var(--hot); animation: blink .5s steps(1) infinite; }
+  @keyframes blink { 50% { background: var(--ink); } }
+
+  .nav { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); display: flex; gap: 10px; z-index: 3; }
+  button { font: inherit; cursor: pointer; }
+  .pill { pointer-events: auto; white-space: nowrap; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 0; padding: 9px 13px 8px; box-shadow: 3px 3px 0 var(--ink); transition: transform .06s, box-shadow .06s; }
+  .pill:hover, .pill:focus-visible { background: var(--gold); outline: none; }
+  .pill:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+  .seg { display: inline-flex; gap: 0; padding: 0; background: var(--paper); border: 2px solid var(--ink); border-radius: 0; box-shadow: 3px 3px 0 var(--ink); }
+  .seg button { font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button:hover { color: var(--ink); background: var(--sky); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
+
+  /* the status line is a ticker: dark band, a coral tag, text that slides in when it changes */
+  .hud { position: fixed; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
+  #bottom { bottom: max(14px, env(safe-area-inset-bottom)); }
+  .ticker { display: flex; align-items: stretch; max-width: min(560px, 100%); background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--shadow); overflow: hidden; }
+  .ticker:has(#status:empty) { visibility: hidden; }
+  .ticker .tag { display: grid; place-items: center; padding: 0 9px; background: var(--accent); color: var(--ink); font: 700 10px/1 var(--sans); letter-spacing: .16em; }
+  .ticker .tag::before { content: ""; width: 7px; height: 7px; margin-bottom: 4px; background: var(--ink); animation: blink2 1s steps(1) infinite; }
+  @keyframes blink2 { 50% { opacity: 0; } }
+  #status { padding: 9px 12px 8px; background: none; border: 0; box-shadow: none; color: var(--paper); font: 600 13px/1.25 var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+  #status.tick { animation: ticker .3s steps(5) both; }
+  @keyframes ticker { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* the rules: a printed rule card with a striped header and square numbers */
+  #rules { width: min(420px, calc(100vw - 28px)); padding: 0 22px 18px; border: 3px solid var(--ink); border-radius: 0; box-shadow: 6px 6px 0 var(--ink); color: var(--ink); background: var(--paper); font: inherit; }
+  #rules::backdrop { background: rgba(30, 42, 69, .45); }
+  #rules::before { content: ""; display: block; height: 10px; margin: 0 -22px 16px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #rules h2 { margin: 0 0 14px; font: 400 40px/.85 var(--pixel); text-transform: uppercase; }
+  #rules h3 { margin: 16px 0 8px; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #rules ol { margin: 0 0 10px; padding: 0; list-style: none; counter-reset: r; }
+  #rules ol li { counter-increment: r; position: relative; padding-left: 34px; margin-bottom: 9px; }
+  #rules ol li::before { content: counter(r); position: absolute; left: 0; top: -1px; width: 22px; height: 22px; display: grid; place-items: center; background: var(--ink); color: var(--gold); font: 400 20px/1 var(--pixel); }
+  #rules ul { margin: 0 0 10px; padding-left: 18px; }
+  #rules p { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+  #rules a { color: inherit; text-underline-offset: 2px; }
+  #rules form { text-align: right; margin-top: 14px; }
+  @media (max-width: 600px) {
+    .hud-top { top: calc(max(14px, env(safe-area-inset-top)) + 84px); }
+    #score b { font-size: 38px; }
+    #status { font-size: 11px; }
+    .ticker .tag { padding: 0 6px; }
+  }
+  html { background: #a9d8ef; }
+  body { background: linear-gradient(180deg, #8fcbed 0%, #b6def2 35%, #d8eff3 65%, #f3eedb 100%) fixed; }
+  #sky { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  #sky i { position: absolute; display: block; background-size: 100% 100%; image-rendering: pixelated; }
+  #sky .cloud { left: -220px; animation: drift linear infinite; }
+  @keyframes drift { to { transform: translateX(calc(100vw + 440px)); } }
+  #sky .islet { animation: bob ease-in-out infinite; }
+  #sky .islet.far { opacity: .28; filter: saturate(.4) brightness(1.3) blur(.5px); }
+  #sky .islet.mid { opacity: .45; filter: saturate(.6) brightness(1.18); }
+  #sky .islet.near { opacity: .6; filter: saturate(.8) brightness(1.08); }
+  @media (max-width: 640px) { #sky .islet.near, #sky .islet.mid:nth-of-type(2n) { display: none; } #sky .islet { width: 44px !important; height: 37px !important; } #sky .thing { transform: scale(.8); } }
+  @keyframes bob { 50% { transform: translateY(-9px); } }
+  @media (prefers-reduced-motion: reduce) { #sky i { animation: none !important; } }
+  .over { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; width: min(330px, calc(100vw - 32px)); display: grid; justify-items: center; gap: 10px; padding: 0 22px 20px; border: 3px solid var(--ink); background: var(--ink); color: var(--paper); box-shadow: 6px 6px 0 var(--accent); text-align: center; pointer-events: none; animation: drop .35s steps(6) both; }
+  @keyframes drop { from { transform: translate(-50%, -80%); opacity: 0; } to { transform: translate(-50%, -50%); opacity: 1; } }
+  .over::before { content: "FULL TIME"; display: block; justify-self: stretch; margin: 0 -22px 8px; padding: 14px 0 7px; background: linear-gradient(var(--ink) 0 0) bottom / 100% 0 no-repeat, var(--stripe) top / 100% 7px no-repeat, var(--accent); color: var(--ink); font: 700 11px/1 var(--sans); letter-spacing: .32em; border-bottom: 3px solid var(--ink); }
+  .over[hidden] { display: none; }
+  .over h2 { margin: 0; font: 400 58px/.8 var(--pixel); color: var(--gold); text-transform: uppercase; text-shadow: 3px 3px 0 var(--accent); }
+  .over p { margin: 0; color: var(--paper); font: 600 15px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+  .over small { color: #a9b3c6; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  .over .over-again { pointer-events: auto; background: var(--gold); color: var(--ink); border-color: var(--paper); box-shadow: 3px 3px 0 var(--accent); margin-top: 6px; padding: 11px 18px 10px; }
+  .over .over-again:hover, .over .over-again:focus-visible { background: var(--accent); }  #sub { color: var(--muted); font: 600 14px/1 var(--sans); font-variant-numeric: tabular-nums; }
+  #sub:empty { display: none; }
+  #wind { color: var(--muted); font-weight: 600; font-size: 12px; }
+  #clock { font: 600 30px/1 var(--pixel); font-variant-numeric: tabular-nums; pointer-events: none; padding: 8px 14px; }
+  #clock:empty { display: none; }
+  #clock.low { color: var(--hot); }
+  #stage { z-index: 1; }
+  #stage { cursor: crosshair; }
+</style>
+</head>
+<body>
+<div id="sky" aria-hidden="true"><i class="cloud" style="top:8%;width:220px;height:110px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2022%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2212%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%224%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:160s;animation-delay:0s;opacity:0.85"></i><i class="cloud" style="top:26%;width:160px;height:97px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2018%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2212%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:130s;animation-delay:-60s;opacity:0.7"></i><i class="cloud" style="top:16%;width:260px;height:110px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2026%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2217%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:190s;animation-delay:-110s;opacity:0.8"></i></div>
+<div id="stage"><canvas id="c" tabindex="0" aria-label="Rifle range. Balloons drift across the field. Hold to steady your breath, let go to fire. Arrow keys aim, and space also works."></canvas></div>
+<div id="score" class="chip">
+  <div class="line"><b id="pts">0</b><span>pts</span></div>
+  <div id="sub"></div>
+  <span id="wind"></span>
+  <span id="best"></span>
+</div>
+<div class="hud-top"><div id="clock" class="chip"></div></div>
+<div class="nav">
+  <button id="menu-back" class="pill" type="button" hidden>Menu</button>
+  <button id="rules-open" class="pill" type="button">Rules</button>
+</div>
+<dialog id="rules" aria-labelledby="rules-title">
+  <h2 id="rules-title">Rifle Range</h2>
+  <ol>
+    <li>Forty seconds. Balloons drift up across the range; each one you pop is a point, and the small gold ones are worth 3.</li>
+    <li>Press and hold to steady your breath. The sight settles over the first half second. The bar under it fills: let go in the green, before it turns red.</li>
+    <li>Hold too long and your arm starts to shake, so the sight swings about.</li>
+    <li>Let go to fire. There is a short reload after each shot, and the wind pushes the balloons sideways, so watch the windsocks.</li>
+    <li>On a keyboard: arrow keys aim, hold space to steady, and let go to fire.</li>
+  </ol>
+  <p>Rendering core adapted from <a href="https://github.com/amirmushichge/pixel-plays" target="_blank" rel="noopener noreferrer">Pixel Plays</a> (MIT).</p>
+  <form method="dialog"><button class="pill">Close</button></form>
+</dialog>
+<div class="hud" id="bottom">
+  <div class="ticker"><span class="tag">LIVE</span><div id="status" role="status" aria-live="polite"></div></div>
+  <button id="mute" class="pill" type="button" aria-pressed="false">sound on</button>
+</div>
+<div id="over" class="over" role="status" hidden>
+  <h2 id="over-title"></h2>
+  <p id="over-text"></p>
+  <button id="again" class="pill over-again" type="button">Play again</button>
+  <small>or tap the field, or press space</small>
+</div>
+<script>
+'use strict';
+const SCENE = { W: 440, H: 300, S: 19, ox: 8, oy: 22 };
+/* ================= renderer (adapted from Pixel Plays engine.js, MIT) ================= */
+const W = SCENE.W, H = SCENE.H, S = SCENE.S;
+const SIN = .5, COS = Math.sqrt(3) / 2, R2 = Math.SQRT2;
+const OX = W / 2 + SCENE.ox, OY = H / 2 + SCENE.oy;
+const SHADOW_X = 1.3, SHADOW_Y = -.12;
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+const image = ctx.createImageData(W, H);
+const pix = new Uint32Array(image.data.buffer);
+const zb = new Float32Array(W * H);
+const bakedPix = new Uint32Array(W * H), bakedZ = new Float32Array(W * H);
+const ground = new Uint8Array(W * H), shadowMask = new Uint8Array(W * H), groundZ = new Float32Array(W * H);
+const kinds = new Uint8Array(W * H), staticShadow = new Uint8Array(W * H);
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + .5) / 16);
+const COOL = [46, 38, 84], WARM = [255, 232, 180];
+const GRASS = [[34, 62, 50], [52, 88, 52], [82, 118, 54], [124, 146, 62], [168, 172, 76]];
+const GRADIENT_Y = COS / (S * SIN), EDGE = .28;
+const KIND_NONE = 0, KIND_COURT = 1, KIND_ASPHALT = 2, KIND_GRASS = 3;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t * t * (3 - 2 * t);
+const rgb = (r, g, b) => (255 << 24 | clamp(b | 0, 0, 255) << 16 | clamp(g | 0, 0, 255) << 8 | clamp(r | 0, 0, 255)) >>> 0;
+const ramps = new WeakMap();
+// hue-shifted ramp: shadows drift to violet, lights drift to warm yellow
+function rampOf(c) {
+  let ramp = ramps.get(c);
+  if (ramp) return ramp;
+  const mix = (m, t, k) => rgb(lerp(c[0] * m, t[0], k), lerp(c[1] * m, t[1], k), lerp(c[2] * m, t[2], k));
+  ramp = [mix(.4, COOL, .34), mix(.62, COOL, .18), mix(.84, COOL, .05), mix(1, WARM, 0), mix(1.1, WARM, .22)];
+  ramps.set(c, ramp);
+  return ramp;
+}
+// closely spaced tones for big flat surfaces, so the dither never reads as a checkerboard
+const toneCache = new WeakMap();
+function tonesOf(c) {
+  let t = toneCache.get(c);
+  if (!t) { t = [.92, .96, 1, 1.04].map(m => rgb(c[0] * m, c[1] * m, c[2] * m)); toneCache.set(c, t); }
+  return t;
+}
+const bayerAt = (ix, iy) => BAYER[(iy & 3) * 4 + (ix & 3)];
+function tint(i, r, g, b) {
+  const c = pix[i];
+  pix[i] = rgb((c & 255) * r, (c >> 8 & 255) * g, (c >> 16 & 255) * b);
+}
+function hash(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+function noise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = ease(x - ix), fy = ease(y - iy);
+  return lerp(lerp(hash(ix, iy), hash(ix + 1, iy), fx), lerp(hash(ix, iy + 1), hash(ix + 1, iy + 1), fx), fy);
+}
+function project(x, y, z) {
+  const u = (x - y) / R2, v = (x + y) / R2;
+  return { sx: OX + u * S, sy: OY + (v * SIN - z * COS) * S, d: v * COS + z * SIN };
+}
+function unproject(sx, sy) {
+  const u = (sx - OX) / S, v = (sy - OY) / (S * SIN);
+  return { x: (u + v) / R2, y: (v - u) / R2 };
+}
+let capture = null;
+function sphere(x, y, z, r, c, mode) {
+  const ramp = rampOf(c);
+  const p = project(x, y, z), rp = Math.max(r * S, .75);
+  const y0 = Math.max(0, Math.floor(p.sy - rp)), y1 = Math.min(H - 1, Math.ceil(p.sy + rp));
+  const x0 = Math.max(0, Math.floor(p.sx - rp)), x1 = Math.min(W - 1, Math.ceil(p.sx + rp));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rp, dy = (iy + .5 - p.sy) / rp, nn = dx * dx + dy * dy;
+    if (nn > 1) continue;
+    const nz = Math.sqrt(1 - nn), d = p.d + r * nz, i = iy * W + ix;
+    if (d <= zb[i]) continue;
+    let l = clamp(-.55 * dx - .6 * dy + .58 * nz, 0, 1);
+    if (mode === 'rough') l += (hash(ix, iy) - .5) * .55;
+    if (dy > .35) l = Math.max(l, .12 + dy * .24);
+    if (capture) { capture.push(ix, iy, d, ramp[clamp(Math.floor(l * 4.4 + .2 + (bayerAt(ix, iy) - .5) * .7), 0, 4)]); continue; }
+    zb[i] = d;
+    if (mode === 'gloss' && l > .9) { pix[i] = rgb(255, 250, 232); continue; }
+    if (mode === 'solid') { pix[i] = ramp[clamp(Math.floor(l * 4.4 + .2), 1, 4)]; continue; }
+    pix[i] = ramp[clamp(Math.floor(l * 4.4 + .2 + (bayerAt(ix, iy) - .5) * .7), 0, 4)];
+  }
+}
+function capsule(a, b, r0, r1, colorOf, mode) {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const n = Math.max(1, Math.ceil(len / (Math.min(r0, r1) * .45)));
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, z = lerp(a[2], b[2], t);
+    sphere(lerp(a[0], b[0], t), lerp(a[1], b[1], t), z, lerp(r0, r1, t), colorOf(z), mode);
+  }
+}
+function box(x0, y0, z0, x1, y1, z1, c, seed = 0) {
+  const ramp = rampOf(c);
+  const paint = (x, y, z, base, grain) => {
+    const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+    if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+    const i = iy * W + ix;
+    if (p.d <= zb[i]) return;
+    zb[i] = p.d;
+    pix[i] = ramp[clamp(Math.floor(base + (grain - .5) * .8 + (bayerAt(ix, iy) - .5) * .4), 0, 4)];
+  };
+  const step = .6 / S, longX = x1 - x0 >= y1 - y0;
+  for (let a = x0; a <= x1; a += step) for (let b = y0; b <= y1; b += step) paint(a, b, z1, 3.4, longX ? noise(a * .8 + seed, b * 9) : noise(a * 9, b * .8 + seed));
+  for (let a = x0; a <= x1; a += step) for (let b = z0; b <= z1; b += step) paint(a, y1, b, 2.3, noise(a * .8 + seed, b * 9));
+  for (let a = y0; a <= y1; a += step) for (let b = z0; b <= z1; b += step) paint(x1, a, b, 1.2, noise(a * .8 + seed, b * 9));
+}
+function plot(x, y, z, color) {
+  const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+  if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+  const i = iy * W + ix;
+  if (p.d <= zb[i]) return;
+  zb[i] = p.d;
+  pix[i] = color;
+}
+function castShadow(x, y, z, r, strength = 1, dither = .4) {
+  const p = project(x + SHADOW_X * z, y + SHADOW_Y * z, 0);
+  const rx = r * S * 1.05, ry = rx * SIN + 1;
+  const y0 = Math.max(0, Math.floor(p.sy - ry)), y1 = Math.min(H - 1, Math.ceil(p.sy + ry));
+  const x0 = Math.max(0, Math.floor(p.sx - rx)), x1 = Math.min(W - 1, Math.ceil(p.sx + rx));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rx, dy = (iy + .5 - p.sy) / ry;
+    if (dx * dx + dy * dy + (bayerAt(ix, iy) - .5) * dither > 1) continue;
+    const i = iy * W + ix;
+    if (shadowMask[i] < strength) shadowMask[i] = strength;
+  }
+}
+function applyShadows(refZ) {
+  for (let i = 0; i < pix.length; i++) {
+    const s = shadowMask[i];
+    if (!s) continue;
+    shadowMask[i] = 0;
+    if (!ground[i] || zb[i] !== refZ[i]) continue;
+    if (s === 1) tint(i, .54, .52, .72);
+    else tint(i, .36, .34, .56);
+  }
+}
+// an object darkens its own silhouette against the ground, and gets a warm rim only over another object
+function shadeEdges() {
+  for (let iy = 1; iy < H - 1; iy++) for (let ix = 1; ix < W - 1; ix++) {
+    const i = iy * W + ix, d = zb[i];
+    if (d < -1e8 || d === groundZ[i]) continue;
+    const a = i - W, b = i + W, c = i - 1, e = i + 1;
+    if (zb[a] === groundZ[a] || zb[b] === groundZ[b] || zb[c] === groundZ[c] || zb[e] === groundZ[e]) {
+      tint(i, .5, .48, .6);
+    } else if (d - zb[a] - GRADIENT_Y > EDGE || d - zb[c] > EDGE) {
+      const p = pix[i];
+      pix[i] = rgb(lerp(p & 255, WARM[0], .3), lerp(p >> 8 & 255, WARM[1], .3), lerp(p >> 16 & 255, WARM[2], .22));
+    } else if (zb[e] - d > EDGE || zb[b] - GRADIENT_Y - d > EDGE) {
+      tint(i, .74, .72, .82);
+    }
+  }
+}
+/* ---------- wind ---------- */
+const WIND_FPS = 8;
+const STILL = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const tufts = [], leaves = [];
+const tuftLit = GRASS.map(c => rgb(...c)), tuftDark = GRASS.map(c => rgb(c[0] * .54, c[1] * .52, c[2] * .72));
+function growGrass() {
+  for (let iy = 3; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+    const i = iy * W + ix;
+    if (kinds[i] !== KIND_GRASS || hash(ix * 3, iy * 5) > .17) continue;
+    tufts.push({
+      ix, iy, i, height: 1 + (hash(ix, iy * 2) * 4 | 0), base: Math.round(noise(ix * .09, iy * .18) * 2.2),
+      phase: ix * .11 + iy * .19 + hash(ix, iy) * .9,
+      bloom: hash(ix * 7, iy) < .022 ? rgb(...(hash(ix, iy) > .5 ? [250, 246, 226] : [240, 200, 84])) : 0,
+    });
+  }
+}
+function drawTufts(t) {
+  for (const tuft of tufts) {
+    const gust = Math.sin(t * .8 + tuft.phase) + .5 * Math.sin(t * 2.1 + tuft.phase * 2.3);
+    const colors = staticShadow[tuft.i] ? tuftDark : tuftLit;
+    for (let k = 1; k <= tuft.height; k++) {
+      const jx = tuft.ix + Math.round(gust * .95 * k / 3), jy = tuft.iy - k;
+      if (jx < 0 || jx >= W) continue;
+      const j = jy * W + jx;
+      if ((kinds[j] !== KIND_GRASS && kinds[j] !== KIND_NONE) || zb[j] !== groundZ[j]) continue;
+      pix[j] = tuft.bloom && k === tuft.height ? tuft.bloom : colors[clamp(tuft.base + k + (gust > 1 ? 1 : 0), 1, 4)];
+    }
+  }
+}
+function drawLeaves(t) {
+  for (const leaf of leaves) {
+    const reach = clamp((leaf.z - 2.5) / 3, .3, 1);
+    const swayX = (Math.sin(t * .9 + leaf.x * .5 + leaf.z * .7) + .55 * Math.sin(t * 2.3 + leaf.k * 1.7)) * reach;
+    const dx = Math.round(swayX * .9), dy = Math.round(Math.sin(t * 1.3 + leaf.y + leaf.k) * reach * .45);
+    const px = leaf.pixels;
+    for (let n = 0; n < px.length; n += 4) {
+      const ix = px[n] + dx, iy = px[n + 1] + dy;
+      if (ix < 0 || iy < 0 || ix >= W || iy >= H) continue;
+      const i = iy * W + ix;
+      if (px[n + 2] <= zb[i]) continue;
+      zb[i] = px[n + 2];
+      pix[i] = px[n + 3];
+    }
+    if (leaf.k % 2 === 0) castShadow(leaf.x + swayX * .12, leaf.y, leaf.z, leaf.r);
+  }
+}
+function bakeOcclusion() {
+  const offsets = [];
+  for (const r of [3, 5]) for (let k = 0; k < 8; k++) offsets.push([Math.round(Math.cos(k * Math.PI / 4) * r), Math.round(Math.sin(k * Math.PI / 4) * r * .7)]);
+  for (let iy = 4; iy < H - 4; iy++) for (let ix = 4; ix < W - 4; ix++) {
+    const i = iy * W + ix;
+    if (!ground[i] || zb[i] !== groundZ[i]) continue;
+    let hits = 0;
+    for (const [ox, oy] of offsets) { const j = (iy + oy) * W + ix + ox; if (zb[j] !== groundZ[j]) hits++; }
+    if (!hits) continue;
+    if (hits >= 8) tint(i, .56, .54, .72);
+    else if (hits / 8 > bayerAt(ix, iy)) tint(i, .74, .72, .84);
+  }
+}
+const CROWN = [[.1, 0, 3.7, 1.6], [-1.4, -.7, 3.3, 1.2], [1.6, .7, 3.4, 1.25], [-.6, 1.1, 3.9, 1.1], [.9, -1.1, 4, 1.1], [.2, .1, 4.9, 1.05]];
+const LEAF_DEEP = [58, 84, 62], LEAF_MID = [100, 126, 78], LEAF_SILVER = [146, 162, 112], BARK = [92, 74, 60];
+function growTree(x, y, scale = 1, count = 420, seed = 0) {
+  const bark = () => BARK;
+  capsule([x, y, 0], [x + .3 * scale, y + .1 * scale, 2.2 * scale], .36 * scale, .22 * scale, bark, 'rough');
+  capsule([x + .3 * scale, y + .1 * scale, 2.2 * scale], [x - .8 * scale, y - .4 * scale, 3.3 * scale], .2 * scale, .13 * scale, bark, 'rough');
+  capsule([x + .3 * scale, y + .1 * scale, 2.2 * scale], [x + 1.2 * scale, y + .4 * scale, 3.4 * scale], .2 * scale, .13 * scale, bark, 'rough');
+  for (let s = 0; s <= 1; s += .1) castShadow(x + .3 * scale * s, y, 2.2 * scale * s, .3 * scale);
+  for (let n = 0; n < count; n++) {
+    const k = n + seed, [cx, cy, cz, spread] = CROWN[n % CROWN.length];
+    const a = hash(k, 7) * 6.283, tilt = hash(k, 8) * 2 - 1, d = Math.cbrt(hash(k, 9)) * spread, flat = Math.sqrt(1 - tilt * tilt);
+    const rx = cx + Math.cos(a) * flat * d, ry = cy + Math.sin(a) * flat * d, rz = cz + tilt * d * .8;
+    const tone = hash(k, 10) + (rz - 4.2) * .22 + (d / spread - .5) * .3;
+    const leaf = tone > .72 ? LEAF_SILVER : tone > .3 ? LEAF_MID : LEAF_DEEP;
+    capture = [];
+    sphere(x + rx * scale, y + ry * scale, rz * scale, (.2 + hash(k, 11) * .22) * scale, leaf, 'rough');
+    leaves.push({ x: x + rx * scale, y: y + ry * scale, z: rz * scale, k, r: .42 * scale, pixels: capture });
+    capture = null;
+  }
+}
+const pendingShadows = [];
+function flushShadows() {
+  for (let i = 0; i < pendingShadows.length; i += 4) {
+    const a = pendingShadows[i], ra = pendingShadows[i + 1], c = pendingShadows[i + 2];
+    const n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1], c[2] - a[2]) / .25));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      castShadow(lerp(a[0], c[0], t), lerp(a[1], c[1], t), lerp(a[2], c[2], t), ra * .9, 1, 0);
+    }
+    if (a[2] < .25) castShadow(a[0], a[1], 0, .2, 2, 0);
+  }
+  pendingShadows.length = 0;
+}
+// the arcade's palette: navy ink, coral signal, and the sky the islands float in
+// empty sky is transparent, so the page's own sky shows through
+const CLEAR = 0;
+const INK = rgb(30, 42, 69), SIGNAL = rgb(255, 106, 61), PAPER = rgb(228, 238, 242);
+function dot(ix, iy, c) { if (ix >= 0 && iy >= 0 && ix < W && iy < H) pix[iy * W + ix] = c; }
+function fit() {
+  const dpr = window.devicePixelRatio || 1;
+  const fitScale = Math.min(innerWidth / W, (innerHeight - 84) / H);
+  // whole device pixels keep every art pixel the same size; when that would waste
+  // more than a sixth of the screen, fill it instead (the unevenness is a pixel at most)
+  const exact = fitScale * dpr, whole = Math.floor(exact);
+  const scale = Math.max(1, whole >= exact * .84 ? whole : exact) / dpr;
+  canvas.style.width = W * scale + 'px';
+  canvas.style.height = H * scale + 'px';
+}
+
+
+/* ================= figures ================= */
+function ik(a, c, l1, l2, bend) {
+  let dx = c[0] - a[0], dy = c[1] - a[1], dz = c[2] - a[2];
+  let d = Math.hypot(dx, dy, dz) || 1e-6;
+  const reach = (l1 + l2) * .995;
+  if (d > reach) { const k = reach / d; dx *= k; dy *= k; dz *= k; d = reach; }
+  const ux = dx / d, uy = dy / d, uz = dz / d;
+  const x = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+  let bx = bend[0], by = bend[1], bz = bend[2];
+  const dt = bx * ux + by * uy + bz * uz;
+  bx -= dt * ux; by -= dt * uy; bz -= dt * uz;
+  const bl = Math.hypot(bx, by, bz) || 1;
+  return {
+    m: [a[0] + ux * x + bx / bl * h, a[1] + uy * x + by / bl * h, a[2] + uz * x + bz / bl * h],
+    e: [a[0] + dx, a[1] + dy, a[2] + dz],
+  };
+}
+function body(crouch, lean) {
+  const hipZ = 1.28 - crouch * .42, hipA = -crouch * .16;
+  return { hipZ, hipA, shA: hipA + Math.sin(lean) * .95, shZ: hipZ + Math.cos(lean) * .95 };
+}
+// flat bands with no dither and a dark silhouette, so figures stay sharp on the textured court
+function player(px, py, yaw, pose, pal) {
+  const fx = Math.cos(yaw), fy = Math.sin(yaw), sx = -fy, sy = fx, base = pose.z || 0;
+  const P = (a, b, c) => [px + fx * a + sx * b, py + fy * a + sy * b, c + base];
+  const add = (a, b, r0, r1, col) => {
+    capsule(a, b, r0, r1, typeof col === 'function' ? col : () => col, 'solid');
+    pendingShadows.push(a, r0, b, r1);
+  };
+  const lean = pose.lean || 0, fr = body(pose.crouch || 0, lean), fwd = [fx, fy, 0];
+  for (const [side, foot] of [[.15, pose.footR || [.1, 0]], [-.15, pose.footL || [-.08, 0]]]) {
+    const [fa, lift] = foot, hip = P(fr.hipA, side, fr.hipZ);
+    const leg = ik(hip, P(fa, side * 1.3, .11 + lift), .62, .6, fwd);
+    add(hip, leg.m, .18, .15, pal.shorts);
+    add(leg.m, leg.e, .12, .1, z => z - base - lift < .36 ? pal.sock : pal.shin || pal.skin);
+    add(leg.e, [leg.e[0] + fx * .17, leg.e[1] + fy * .17, leg.e[2] - .03], .1, .09, pal.shoe);
+  }
+  const waist = P(fr.hipA, 0, fr.hipZ - .04), neck = P(fr.shA, 0, fr.shZ + .06), hz = base + fr.hipZ + .12;
+  add(waist, neck, .29, .32, z => z < hz ? pal.shorts : pal.jersey);
+  const head = P(fr.shA + Math.sin(lean) * .3, 0, fr.shZ + .36);
+  add(neck, head, .11, .12, pal.skin);
+  add(head, head, .24, .24, pal.skin);
+  const hair = [head[0] - fx * .06, head[1] - fy * .06, head[2] + .08];
+  add(hair, hair, .205, .205, pal.hair);
+  for (const [side, hand] of [[.35, pose.hR], [-.35, pose.hL]]) {
+    const sg = Math.sign(side), sh = P(fr.shA, side, fr.shZ - .04);
+    const target = hand ? P(hand[0], hand[1], hand[2]) : P(fr.shA + .04, side * 1.2, fr.shZ - .9);
+    const arm = ik(sh, target, .46, .47, [sx * sg * .7 - fx * .2, sy * sg * .7 - fy * .2, -.7]);
+    add(sh, sh, .14, .14, pal.jersey);
+    add(sh, arm.m, .1, .085, pal.sleeve || pal.skin);
+    add(arm.m, arm.e, .085, .075, pal.skin);
+  }
+  return pose.ball ? P(pose.ball[0], pose.ball[1], pose.ball[2]) : null;
+}
+
+
+/* ================= audio ================= */
+let audio = null, muted = false, noiseBuf = null;
+function ensureAudio() {
+  if (audio) { if (audio.state === 'suspended') audio.resume().catch(() => {}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { audio = new AC(); } catch (e) { audio = null; return; }
+  noiseBuf = audio.createBuffer(1, audio.sampleRate / 2, audio.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function tone(f0, f1, dur, vol, type, delay = 0) {
+  const now = audio.currentTime + delay, g = audio.createGain(), o = audio.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, now);
+  o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+  g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(.0005, now + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(now); o.stop(now + dur + .02);
+}
+function hiss(dur, freq, q, vol, delay = 0) {
+  const now = audio.currentTime + delay, src = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
+  src.buffer = noiseBuf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  g.gain.setValueAtTime(.0005, now);
+  g.gain.linearRampToValueAtTime(vol, now + dur * .25);
+  g.gain.exponentialRampToValueAtTime(.0005, now + dur);
+  src.connect(f).connect(g).connect(audio.destination);
+  src.start(now); src.stop(now + dur + .02);
+}
+
+/* ================= game over ================= */
+/* ================= game over card ================= */
+// shows when a round ends; it stays until the player starts again (tap, Space, or the button)
+const overEl = document.getElementById('over');
+function showOver(title, text) {
+  document.getElementById('over-title').textContent = title;
+  document.getElementById('over-text').textContent = text;
+  overEl.hidden = false;
+}
+function hideOver() { overEl.hidden = true; }
+function replayGame() { if (G.phase === 'over' && G.phaseT > .6) reset(); }
+document.getElementById('again').addEventListener('click', e => { e.stopPropagation(); replayGame(); });
+// any reset (tap, Space, the button) moves the game off 'over', so the card goes with it
+setInterval(() => { if (!overEl.hidden && G.phase !== 'over') overEl.hidden = true; }, 120);
+
+// the status ticker slides each new message in
+(() => {
+  const st = document.getElementById('status');
+  if (!st) return;
+  new MutationObserver(() => { st.classList.remove('tick'); void st.offsetWidth; st.classList.add('tick'); }).observe(st, { childList: true, characterData: true, subtree: true });
+})();
+
+/* ================= the rifle range ================= */
+const X_T = -6.6, BALLOON_TIME = 40, RELOAD = .4, STEADY_T = .6, SHAKE_T = 1.5;
+const BACKSTOP = { x0: X_T - 1.75, x1: X_T - .95, y0: -3.15, y1: 3.15, z0: 0, z1: 1.46 };
+const SOCKS = [[-3.3, -3.7, 3.1], [1.9, 3.8, 2.6]];
+const ARCHER = [6.25, .45];
+const LINE_X = 5.45, LANE_Y = 2.6;
+const ISLAND = { cx: -.4, ax: 9.5, ay: 6.1 };
+const KIND_LAWN = 4;
+const LAWN_A = [94, 130, 62], LAWN_B = [108, 144, 70], CHALK = [242, 240, 228];
+const PLANK = [150, 108, 70], STRAW = [206, 168, 90], WOOD = [118, 82, 52], C_POLE = [70, 74, 86];
+const STOCK = [92, 62, 40], METAL = [58, 62, 72], SIGHT = [40, 42, 50];
+const BALLOON_C = [[216, 58, 62], [64, 118, 206], [84, 166, 90], [150, 94, 196]], GOLD = [242, 190, 48];
+const SHOOTER_PAL = { jersey: [54, 84, 128], shorts: [74, 68, 62], shin: [74, 68, 62], sock: [74, 68, 62], sleeve: [54, 84, 128], skin: [214, 164, 124], hair: [70, 48, 34], shoe: [46, 44, 52] };
+
+const LX = -.246, LY = .532, LZ = .81;
+function litLevel(nx, ny, nz) { return clamp(Math.floor(((nx * LX + ny * LY + nz * LZ) * .5 + .5) * 4.3 + .2), 1, 4); }
+function pick(tones, v, ix, iy, dither = .6) { return tones[clamp(Math.floor(v * 4 + (bayerAt(ix, iy) - .5) * dither), 0, 3)]; }
+function islandEdge(x, y) { return Math.pow(Math.pow(Math.abs(x - ISLAND.cx) / ISLAND.ax, 4) + Math.pow(Math.abs(y) / ISLAND.ay, 4), .25); }
+const onIsland = (x, y) => islandEdge(x, y) < .97;
+const inBox = (p, b) => p[0] >= b.x0 && p[0] <= b.x1 && p[1] >= b.y0 && p[1] <= b.y1 && p[2] >= b.z0 && p[2] <= b.z1;
+const norm3 = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+
+function groundColor(x, y, ix, iy, i) {
+  const edge = islandEdge(x, y), rough = edge + (noise(x * 1.3, y * 1.3) - .5) * .12;
+  if (rough > 1.04) return 0;
+  if (rough > .93 && hash(ix, iy) < (rough - .93) / .11) return 0;
+  const fine = hash(ix, iy), ay = Math.abs(y);
+  if (ay < LANE_Y && x > X_T - 2.3 && x < LINE_X + 1.7) {
+    kinds[i] = KIND_LAWN;
+    if (Math.abs(x - LINE_X) < .07) return rgb(...CHALK);
+    const stripe = Math.floor((LINE_X - x) / 1.25) & 1;
+    return pick(tonesOf(stripe ? LAWN_A : LAWN_B), .5 + (noise(x * .7, y * .7) - .5) * .4, ix, iy, .35);
+  }
+  kinds[i] = KIND_GRASS;
+  const t = noise(x * .9, y * .9) * 1.15 + (fine - .5) * .55 - .08;
+  return rgb(...GRASS[clamp(Math.floor(t * 4.2), 0, 3)]);
+}
+function bales(b, rows) {
+  const len = 1.02;
+  for (let r = 0; r < rows; r++) {
+    const z0 = r * .72, shift = r % 2 ? len / 2 : 0;
+    for (let y = b.y0 - shift; y < b.y1 - .2; y += len) {
+      const y0 = Math.max(b.y0, y) + .05, y1 = Math.min(b.y1, y + len - .07);
+      if (y1 - y0 < .3) continue;
+      box(b.x0, y0, z0, b.x1, y1, z0 + .7, STRAW, y * 3 + r);
+      const twine = rampOf(STRAW)[1];
+      for (const f of [.28, .72]) {
+        const yt = lerp(y0, y1, f);
+        for (let x = b.x0; x <= b.x1; x += .02) plot(x, yt, z0 + .705, twine);
+        for (let z = z0; z <= z0 + .7; z += .02) plot(b.x1 + .005, yt, z, twine);
+      }
+      for (let yy = y0; yy <= y1; yy += .2) for (let x = b.x0; x <= b.x1; x += .25) castShadow(x, yy, z0 + .6, .2);
+    }
+  }
+}
+function bake() {
+  zb.fill(-1e9); pix.fill(CLEAR); ground.fill(0); kinds.fill(0); shadowMask.fill(0);
+  tufts.length = 0; leaves.length = 0;
+  for (let iy = 0; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+    const g = unproject(ix + .5, iy + .5), i = iy * W + ix, c = groundColor(g.x, g.y, ix, iy, i);
+    if (!c) continue;
+    pix[i] = c; ground[i] = 1;
+    zb[i] = (g.x + g.y) / R2 * COS;
+  }
+  growGrass();
+  groundZ.set(zb);
+  box(5.7, -.35, 0, 6.85, 1.3, .07, PLANK, 2);
+  bales(BACKSTOP, 2);
+  for (const [x, y, h] of SOCKS) {
+    capsule([x, y, 0], [x, y, h], .05, .045, () => C_POLE, 'solid');
+    for (let z = 0; z <= h; z += .12) castShadow(x, y, z, .06);
+  }
+  // a crate of spare ammunition beside the mat
+  box(6.9, 1.6, 0, 7.5, 2.2, .5, WOOD, 9);
+  castShadow(7.2, 1.9, .3, .5);
+  growTree(-8.65, 3.55, .9, 440, 0);
+  growTree(.9, -5.05, .74, 320, 77);
+  growTree(7.45, -4.15, .6, 260, 150);
+  bakeOcclusion();
+  staticShadow.set(shadowMask);
+  applyShadows(groundZ);
+  bakedPix.set(pix);
+  bakedZ.set(zb);
+}
+
+function drawSock([x, y, h]) {
+  const w = G.wind, sg = w >= 0 ? 1 : -1, lift = Math.min(1, Math.abs(w) / 4.5);
+  for (let k = 0; k < 8; k++) {
+    const t = k / 7, flap = Math.sin(G.time * 9 - k * .9) * .04 * (.3 + lift);
+    const p = [x + flap, y + sg * (.1 + t * .95) * (.35 + .65 * lift), h - .1 - t * t * .55 * (1 - lift) - t * .08 + flap];
+    sphere(p[0], p[1], p[2], .15 - t * .06, [[226, 84, 52], [244, 240, 230]][(k >> 1) & 1], 'solid');
+    if (k % 2 === 0) castShadow(p[0], p[1], p[2], .12, 1, 0);
+  }
+}
+
+/* ================= balloons ================= */
+function spawnBalloon() {
+  const gold = Math.random() < .13;
+  G.balloons.push({
+    p: [X_T, (Math.random() * 2 - 1) * 3.7, .15], r: gold ? .3 : .42, gold,
+    c: gold ? GOLD : BALLOON_C[Math.random() * BALLOON_C.length | 0],
+    vz: gold ? 1.25 + Math.random() * .35 : .6 + Math.random() * .5, ph: Math.random() * 6.28, t: 0, popped: false,
+  });
+}
+function stepBalloons(dt) {
+  if (!G.timeUp && G.running) {
+    G.spawnT -= dt;
+    if (G.spawnT <= 0) { spawnBalloon(); G.spawnT = .55 + Math.random() * .5; }
+  }
+  for (const b of G.balloons) {
+    b.t += dt;
+    b.p[2] += b.vz * dt;
+    b.p[1] = clamp(b.p[1] + (Math.sin(b.t * 1.7 + b.ph) * .35 + G.wind * .12) * dt, -4.6, 4.6);
+  }
+  G.balloons = G.balloons.filter(b => !b.popped && b.p[2] < 6);
+}
+function drawBalloon(b) {
+  sphere(b.p[0], b.p[1], b.p[2], b.r, b.c, 'gloss');
+  sphere(b.p[0], b.p[1], b.p[2] - b.r - .03, .06, b.c, 'solid');
+  const str = rgb(84, 82, 92);
+  for (let s = 0; s <= 1; s += .04) plot(b.p[0], b.p[1] + Math.sin(b.t * 3 + s * 5 + b.ph) * .05 * s, b.p[2] - b.r - .06 - s * .75, str);
+  castShadow(b.p[0], b.p[1], b.p[2], b.r * .9, 1, 0);
+}
+// a balloon is hit when the sight lies on it as the camera shows it
+function hitBalloon() {
+  const s = [G.aim[0] + G.sway[0], G.aim[1] + G.sway[1]];
+  let best = null, bd = 1e9;
+  for (const b of G.balloons) {
+    if (b.popped) continue;
+    const p = project(b.p[0], b.p[1], b.p[2]), d = Math.hypot(p.sx - s[0], p.sy - s[1]), reach = b.r * S * 1.15 + 3;
+    if (d < reach && d < bd) { best = b; bd = d; }
+  }
+  return best;
+}
+function popBalloon(b) {
+  b.popped = true;
+  const pts = b.gold ? 3 : 1;
+  G.score += pts; G.hitsN++;
+  const p = project(b.p[0], b.p[1], b.p[2]);
+  for (let k = 0; k < 14; k++) {
+    const a = k / 14 * 6.283 + Math.random() * .3, sp = 30 + Math.random() * 40;
+    G.particles.push({ x: p.sx, y: p.sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20, life: .45, c: rampOf(b.c)[3 + (k & 1)] });
+  }
+  G.popups.push({ text: '+' + pts, x: p.sx, y: p.sy - 14, t: 0, gold: b.gold });
+  sound('pop');
+  if (b.gold) sound('score');
+  setStatus(b.gold ? 'gold balloon, 3 points' : G.hitsN % 10 === 0 ? G.hitsN + ' popped' : G.hitsN + ' popped · hold to steady, let go to fire');
+  renderHud();
+}
+
+/* ================= the shooter and the rifle ================= */
+// the rifle follows the sight; the body turns to face it
+function shooterFrame() {
+  const A = aimPoint(), px = ARCHER[0], py = ARCHER[1];
+  const yaw = Math.atan2(A[1] - py, A[0] - px), fx = Math.cos(yaw), fy = Math.sin(yaw);
+  const fr = body(.05, .03);
+  const sh = [px + fx * fr.shA - fy * .3, py + fy * fr.shA + fx * .3, fr.shZ - .04];
+  const dir = norm3([A[0] - sh[0], A[1] - sh[1], A[2] - sh[2]]);
+  return { px, py, yaw, fx, fy, sh, dir, A };
+}
+function drawShooter() {
+  const f = shooterFrame(), { px, py, fx, fy, sh, dir } = f;
+  const local = w => [(w[0] - px) * fx + (w[1] - py) * fy, -(w[0] - px) * fy + (w[1] - py) * fx, w[2]];
+  const grip = [sh[0] + dir[0] * .08, sh[1] + dir[1] * .08, sh[2] + dir[2] * .08 - .05];
+  const fore = [sh[0] + dir[0] * .62, sh[1] + dir[1] * .62, sh[2] + dir[2] * .62 - .12];
+  // the kick of the last shot
+  const kick = G.phase === 'reload' ? Math.max(0, 1 - G.phaseT / .18) * .05 : 0;
+  player(px, py, f.yaw, { crouch: .05, lean: .03, hR: local([grip[0], grip[1], grip[2] + kick]), hL: local(fore), footR: [.28, 0], footL: [-.3, 0] }, SHOOTER_PAL);
+  const muzzle = [sh[0] + dir[0] * 1.1, sh[1] + dir[1] * 1.1, sh[2] + dir[2] * 1.1 - kick];
+  capsule([sh[0] - dir[0] * .32, sh[1] - dir[1] * .32, sh[2] - dir[2] * .32 + .04], [sh[0] + dir[0] * .1, sh[1] + dir[1] * .1, sh[2] + dir[2] * .1], .08, .06, () => STOCK, 'solid');
+  capsule([sh[0] + dir[0] * .1, sh[1] + dir[1] * .1, sh[2] + dir[2] * .1 - kick], muzzle, .04, .03, () => METAL, 'solid');
+  capsule([sh[0] + dir[0] * .3, sh[1] + dir[1] * .3, sh[2] + dir[2] * .3 - kick + .07], [sh[0] + dir[0] * .6, sh[1] + dir[1] * .6, sh[2] + dir[2] * .6 - kick + .07], .035, .035, () => SIGHT, 'solid');
+  G.muzzle = muzzle;
+}
+
+/* ================= arrows-of-light and overlays ================= */
+const FONT = {
+  '+': ['...', '.X.', 'XXX', '.X.', '...'], '0': ['XXX', 'X.X', 'X.X', 'X.X', 'XXX'], '1': ['.X.', 'XX.', '.X.', '.X.', 'XXX'],
+  '2': ['XXX', '..X', 'XXX', 'X..', 'XXX'], '3': ['XXX', '..X', '.XX', '..X', 'XXX'], '4': ['X.X', 'X.X', 'XXX', '..X', '..X'],
+  '5': ['XXX', 'X..', 'XXX', '..X', 'XXX'], '6': ['XXX', 'X..', 'XXX', 'X.X', 'XXX'], '7': ['XXX', '..X', '.X.', '.X.', '.X.'],
+  '8': ['XXX', 'X.X', 'XXX', 'X.X', 'XXX'], '9': ['XXX', 'X.X', 'XXX', '..X', 'XXX'],
+};
+function drawText(text, cx, top, fill, k = 2) {
+  const cells = [];
+  let x = Math.round(cx - (text.length * 4 - 1) * k / 2);
+  for (const ch of text) {
+    const g = FONT[ch];
+    if (g) g.forEach((row, yy) => [...row].forEach((v, xx) => {
+      if (v === 'X') for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) cells.push([x + xx * k + a, top + yy * k + b]);
+    }));
+    x += 4 * k;
+  }
+  for (const [px, py] of cells) for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) dot(px + ox, py + oy, INK);
+  for (const [px, py] of cells) dot(px, py, fill);
+}
+// the sight: a crosshair that moves with the breath, and a bar for how long the breath has been held
+function drawReticle() {
+  if (G.phase === 'over') return;
+  const x = Math.round(G.aim[0] + G.sway[0]), y = Math.round(G.aim[1] + G.sway[1]);
+  const arms = [];
+  for (let k = 3; k <= 7; k++) arms.push([x + k, y], [x - k, y], [x, y + k], [x, y - k]);
+  for (const [a, b] of arms) for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) dot(a + ox, b + oy, PAPER);
+  const steady = G.pressing && G.holdT >= STEADY_T && G.holdT < SHAKE_T;
+  for (const [a, b] of arms) dot(a, b, steady ? SIGNAL : INK);
+  dot(x, y, steady ? SIGNAL : INK);
+  if (G.pressing) {
+    const w = 21, x0 = x - 10, yb = y + 11, v = clamp(G.holdT / SHAKE_T, 0, 1);
+    for (let yy = yb - 1; yy <= yb + 3; yy++) for (let xx = x0 - 2; xx <= x0 + w + 1; xx++) dot(xx, yy, PAPER);
+    for (let yy = yb; yy <= yb + 2; yy++) for (let xx = x0 - 1; xx <= x0 + w; xx++) dot(xx, yy, INK);
+    const fill = Math.round(v * w);
+    for (let xx = x0; xx < x0 + w; xx++) {
+      const u = (xx - x0) / w, c = u < STEADY_T / SHAKE_T ? rgb(150, 150, 160) : u < 1 ? rgb(86, 178, 96) : rgb(230, 120, 100);
+      dot(xx, yb + 1, xx - x0 < fill ? c : rgb(110, 106, 104));
+    }
+  }
+}
+function drawTracer() {
+  if (!G.tracer || G.tracer.t > .12 || !G.muzzleS) return;
+  const a = G.muzzleS, b = G.tracer.to;
+  for (let k = 0; k <= 24; k++) {
+    const t = k / 24, x = Math.round(lerp(a[0], b[0], t)), y = Math.round(lerp(a[1], b[1], t));
+    dot(x, y, k % 3 ? PAPER : SIGNAL);
+  }
+}
+function drawParticles() {
+  for (const p of G.particles) {
+    const x = Math.round(p.x), y = Math.round(p.y);
+    dot(x, y, p.c); dot(x + 1, y, p.c);
+  }
+}
+function drawPopups() {
+  for (const p of G.popups) {
+    if (p.t > .8 && Math.floor(p.t * 14) % 2) continue;
+    drawText(p.text, p.x, Math.round(p.y - p.t * 16), p.gold ? rgb(255, 176, 40) : SIGNAL);
+  }
+}
+
+/* ================= game state ================= */
+const BEST_KEY = 'shooting-best';
+function loadBest() { try { return +localStorage.getItem(BEST_KEY) || 0; } catch (e) { return 0; } }
+function saveBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) { /* storage may be off */ } }
+const G = { time: 0, aim: [0, 0], sway: [0, 0], wind: 0, keys: {} };
+const targetScreen = () => { const p = project(X_T, 0, 1.6); return [p.sx, p.sy]; };
+const aimPoint = () => planePoint(G.aim[0] + G.sway[0], G.aim[1] + G.sway[1]);
+function planePoint(sx, sy) {
+  const u = (sx - OX) / S, y = X_T - u * R2, v = (X_T + y) / R2;
+  return [X_T, y, (v * SIN - (sy - OY) / S) / COS];
+}
+function reset() {
+  Object.assign(G, {
+    phase: 'ready', phaseT: 0, score: 0, shots: 0, hitsN: 0, balloons: [], particles: [], popups: [], tracer: null,
+    clock: BALLOON_TIME, running: false, timeUp: false, started: false, spawnT: .2, windT: 8, lastTick: 99,
+    pressing: false, holdT: 0, cool: 0, best: loadBest(), newBest: false,
+  });
+  if (!G.aimed) G.aim = targetScreen();
+  newWind(true);
+  setStatus('press and hold to steady your breath, let go to fire');
+  hideOver();
+  renderHud();
+}
+function newWind(now) {
+  const v = Math.round((Math.random() * 2 - 1) * 45) / 10;
+  G.windTarget = Math.abs(v) < .4 ? 0 : v;
+  if (now) G.wind = G.windTarget;
+}
+
+/* ================= update ================= */
+function fire() {
+  G.shots++;
+  const hit = hitBalloon();
+  G.tracer = { t: 0, to: G.muzzle ? [clamp(G.aim[0] + G.sway[0], 0, W - 1), clamp(G.aim[1] + G.sway[1], 0, H - 1)] : [0, 0] };
+  G.muzzleS = G.muzzle ? (() => { const p = project(G.muzzle[0], G.muzzle[1], G.muzzle[2]); return [p.sx, p.sy]; })() : null;
+  sound('shot');
+  G.cool = RELOAD;
+  setPhase('reload');
+  if (hit) popBalloon(hit);
+  else { G.misses = (G.misses || 0) + 1; setStatus(G.holdT < STEADY_T ? 'snap shot, missed · hold longer to steady' : 'missed'); }
+  G.lastShotHolding = G.holdT;
+  renderHud();
+}
+function setPhase(p) { G.phase = p; G.phaseT = 0; }
+function update(dt) {
+  G.time += dt; G.phaseT += dt;
+  G.wind += (G.windTarget - G.wind) * Math.min(1, dt * 4);
+  G.windT -= dt;
+  if (G.windT <= 0) { newWind(false); G.windT = 8; renderHud(); }
+  if (G.running) {
+    G.clock -= dt;
+    const left = Math.ceil(G.clock);
+    if (left <= 5 && left < G.lastTick && left > 0) { G.lastTick = left; sound('tick'); }
+    if (G.clock <= 0) { G.clock = 0; G.running = false; G.timeUp = true; sound('buzzer'); finish(); }
+  }
+  if (G.pressing) G.holdT += dt;
+  G.cool = Math.max(0, G.cool - dt);
+  if (G.phase === 'reload' && G.cool <= 0) setPhase('ready');
+  // breath: held steady for a moment, then the arm starts to shake
+  const t = G.time;
+  const amp = G.pressing ? (G.holdT < STEADY_T ? lerp(2.2, .35, G.holdT / STEADY_T) : .35 + Math.max(0, G.holdT - SHAKE_T) * 3.4) : 2.2;
+  const tx = (Math.sin(t * 1.3) + .4 * Math.sin(t * 3.7)) * amp, ty = (Math.cos(t * 1.1) * .8 + .3 * Math.sin(t * 4.3)) * amp;
+  G.sway[0] += (tx - G.sway[0]) * Math.min(1, dt * 8);
+  G.sway[1] += (ty - G.sway[1]) * Math.min(1, dt * 8);
+  const k = G.keys, sp = 70 * dt;
+  G.aim[0] = clamp(G.aim[0] + ((k.ArrowRight ? 1 : 0) - (k.ArrowLeft ? 1 : 0)) * sp, 0, W - 1);
+  G.aim[1] = clamp(G.aim[1] + ((k.ArrowDown ? 1 : 0) - (k.ArrowUp ? 1 : 0)) * sp, 0, H - 1);
+  stepBalloons(dt);
+  if (G.tracer) G.tracer.t += dt;
+  for (const p of G.particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120 * dt; p.life -= dt; }
+  G.particles = G.particles.filter(p => p.life > 0);
+  for (const p of G.popups) p.t += dt;
+  G.popups = G.popups.filter(p => p.t < 1.1);
+  renderClock();
+}
+function finish() {
+  setPhase('over');
+  G.newBest = G.score > G.best;
+  if (G.newBest) { G.best = G.score; saveBest(G.score); }
+  setStatus(G.newBest ? 'new best: ' + G.score + ' · tap to play again' : 'time · ' + G.score + ' points · best ' + G.best + ' · tap to play again');
+  showOver('Time!', G.score + ' points' + (G.newBest ? ' · new best' : ' · best ' + G.best));
+  renderHud();
+}
+
+/* ================= draw ================= */
+function draw() {
+  pix.set(bakedPix);
+  zb.set(bakedZ);
+  drawShooter();
+  for (const b of G.balloons) drawBalloon(b);
+  for (const s of SOCKS) drawSock(s);
+  const windT = STILL ? 0 : Math.floor(G.time * WIND_FPS) / WIND_FPS;
+  drawLeaves(windT);
+  drawTufts(windT);
+  flushShadows();
+  applyShadows(bakedZ);
+  shadeEdges();
+  drawParticles();
+  drawTracer();
+  drawPopups();
+  drawReticle();
+  ctx.putImageData(image, 0, 0);
+}
+
+/* ================= hud ================= */
+const nodes = {
+  pts: document.getElementById('pts'), sub: document.getElementById('sub'), best: document.getElementById('best'),
+  wind: document.getElementById('wind'), clock: document.getElementById('clock'), status: document.getElementById('status'),
+};
+function renderHud() {
+  nodes.pts.textContent = G.score;
+  nodes.sub.textContent = G.hitsN + ' of ' + G.shots + ' hit';
+  nodes.best.textContent = G.best ? 'best ' + G.best : '';
+  const w = G.windTarget;
+  nodes.wind.textContent = !w ? 'wind calm' : 'wind ' + (w > 0 ? '←' : '→') + ' ' + Math.abs(w).toFixed(1);
+}
+let shownClock = '';
+function renderClock() {
+  const c = G.clock, text = c >= 10 ? String(Math.ceil(c)) : c.toFixed(1);
+  if (text !== shownClock) { shownClock = text; nodes.clock.textContent = text; }
+  nodes.clock.classList.toggle('low', c < 10 && G.started);
+}
+let statusText = '';
+function setStatus(text) { if (text !== statusText) { statusText = text; nodes.status.textContent = text; } }
+
+/* ================= input ================= */
+const stage = document.getElementById('stage'), rules = document.getElementById('rules');
+function toCanvas(e) {
+  const r = canvas.getBoundingClientRect();
+  return [clamp((e.clientX - r.left) * W / r.width, 0, W - 1), clamp((e.clientY - r.top) * H / r.height, 0, H - 1)];
+}
+function press() {
+  ensureAudio();
+  if (G.phase === 'over') { if (G.phaseT > .6) reset(); return; }
+  if (G.timeUp) return;
+  if (!G.started) { G.started = true; G.running = true; setStatus('hold to steady your breath, let go to fire'); }
+  if (G.pressing) return;
+  G.pressing = true;
+  G.holdT = 0;
+}
+function letGo() {
+  if (!G.pressing) return;
+  G.pressing = false;
+  if (G.cool > 0 || G.timeUp) { G.holdT = 0; return; }
+  fire();
+  G.holdT = 0;
+}
+let touch = null;
+stage.addEventListener('pointerdown', e => {
+  if (e.button > 0) return;
+  try { stage.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+  canvas.focus({ preventScroll: true });
+  if (e.pointerType === 'mouse') { G.aim = toCanvas(e); G.aimed = true; }
+  else touch = { x: e.clientX, y: e.clientY, aim: G.aim.slice() };
+  press();
+});
+stage.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse') { if (e.clientX || e.clientY) { G.aim = toCanvas(e); G.aimed = true; } return; }
+  if (!touch) return;
+  const r = canvas.getBoundingClientRect(), k = W / r.width * 1.1;
+  G.aim = [clamp(touch.aim[0] + (e.clientX - touch.x) * k, 0, W - 1), clamp(touch.aim[1] + (e.clientY - touch.y) * k, 0, H - 1)];
+  G.aimed = true;
+});
+// a synthetic move at the page corner on load would yank the sight away
+addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && e.target !== stage && !rules.open && (e.clientX || e.clientY)) { G.aim = toCanvas(e); G.aimed = true; } });
+stage.addEventListener('pointerup', () => { touch = null; letGo(); });
+stage.addEventListener('pointercancel', () => { touch = null; G.pressing = false; G.holdT = 0; });
+addEventListener('keydown', e => {
+  if (rules.open) return;
+  if (e.key.startsWith('Arrow')) { G.keys[e.key] = true; G.aimed = true; e.preventDefault(); return; }
+  if (e.key !== ' ' && e.key !== 'Enter') return;
+  if (e.target.tagName === 'BUTTON') return;
+  e.preventDefault();
+  if (!e.repeat) press();
+});
+addEventListener('keyup', e => {
+  if (e.key.startsWith('Arrow')) G.keys[e.key] = false;
+  if (e.key === ' ' || e.key === 'Enter') letGo();
+});
+addEventListener('blur', () => { G.pressing = false; G.holdT = 0; G.keys = {}; });
+document.getElementById('rules-open').addEventListener('click', () => rules.showModal());
+rules.addEventListener('click', e => { if (e.target === rules) rules.close(); });
+rules.addEventListener('close', () => canvas.focus({ preventScroll: true }));
+
+/* ================= sound ================= */
+function sound(kind) {
+  if (!audio || muted) return;
+  if (kind === 'shot') { hiss(.3, 1500, .6, .22); tone(190, 55, .2, .3, 'sawtooth'); }
+  else if (kind === 'pop') { hiss(.07, 2200, .6, .3); tone(900, 260, .06, .05, 'square'); }
+  else if (kind === 'score') { tone(660, 660, .1, .05, 'triangle'); tone(990, 990, .14, .05, 'triangle', .08); }
+  else if (kind === 'tick') tone(1100, 1100, .05, .04, 'square');
+  else if (kind === 'buzzer') { tone(170, 165, .8, .09, 'sawtooth'); tone(173, 168, .8, .07, 'square'); }
+}
+const muteButton = document.getElementById('mute');
+muteButton.addEventListener('click', () => {
+  muteButton.blur();
+  muted = !muted;
+  muteButton.textContent = muted ? 'sound off' : 'sound on';
+  muteButton.setAttribute('aria-pressed', String(muted));
+});
+
+/* ================= boot ================= */
+addEventListener('resize', fit);
+fit();
+bake();
+reset();
+let last = performance.now();
+function frame(now) {
+  update(Math.min(.04, (now - last) / 1000));
+  last = now;
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__shoot = { G, update, draw, press, letGo, fire, planePoint, project, hitBalloon, spawnBalloon };
+
+</script>
+<script>
+(() => {
+  if (window.parent === window) return;
+  const back = document.getElementById('menu-back');
+  back.hidden = false;
+  const leave = () => window.parent.postMessage({ type: 'pixel-sports-menu' }, '*');
+  back.addEventListener('click', leave);
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) leave(); });
+})();
+</script>
+</body>
+</html>

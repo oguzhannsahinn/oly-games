@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Three-Point</title>
+<!--
+  Three-Point · Olygames
+
+  Rendering core (orthographic camera, depth buffer, hue-shifted ramps, cast shadows, depth edges,
+  grass tufts and swaying leaves) adapted from Pixel Plays by Amir Mushich:
+  https://github.com/amirmushichge/pixel-plays
+
+  MIT License — Copyright (c) 2026 Amir Mushich
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+  associated documentation files (the "Software"), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge, publish, distribute,
+  sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions: The above copyright notice and this
+  permission notice shall be included in all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+  NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+  DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+  OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&family=Chakra+Petch:wght@500;600;700&family=Pixelify+Sans:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sky: #efe5cf; --paper: #fdf8ec; --ink: #1e2a45; --muted: #5f6a80; --card: #fdf8ec; --accent: #ff6a3d; --gold: #f2be30; --hot: #e0452b; --good: #2f9a57;
+    --shadow: 4px 4px 0 var(--ink);
+    --pixel: "Jersey 10", "Pixelify Sans", ui-monospace, Menlo, monospace; --sans: "Chakra Petch", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --stripe: repeating-linear-gradient(-45deg, var(--accent) 0 6px, var(--ink) 6px 12px);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--sky); color: var(--ink); }
+  body { font: 500 14px/1.4 var(--sans); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; touch-action: none; cursor: pointer; }
+  canvas { display: block; image-rendering: pixelated; outline: none; }
+
+  /* panels: square, ink-framed, with a hard offset shadow — a broadcast scorebug, not a card */
+  .chip { background: var(--paper); border: 3px solid var(--ink); border-radius: 0; box-shadow: var(--shadow); padding: 10px 14px; }
+  #score { position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); display: grid; gap: 7px; pointer-events: none; min-width: 132px; padding-top: 16px; }
+  #score::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #score .line { display: flex; align-items: baseline; gap: 7px; }
+  #score b { font: 400 46px/.8 var(--pixel); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+  #score .line span { color: var(--muted); font: 700 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #score div span, #score .h, #score .fr { border-radius: 0 !important; }
+  #best { justify-self: start; color: var(--ink); background: var(--gold); border: 2px solid var(--ink); padding: 2px 7px 1px; font: 700 10px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .12em; }
+  #best::before { content: "★ "; }
+  #best:empty { display: none; }
+
+  .hud-top { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: grid; justify-items: center; gap: 10px; z-index: 3; }
+  #clock { font: 400 44px/.8 var(--pixel); font-variant-numeric: tabular-nums; pointer-events: none; padding: 10px 16px 8px; }
+  #clock:empty { display: none; }
+  #clock.low { color: var(--paper); background: var(--hot); animation: blink .5s steps(1) infinite; }
+  @keyframes blink { 50% { background: var(--ink); } }
+
+  .nav { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); display: flex; gap: 10px; z-index: 3; }
+  button { font: inherit; cursor: pointer; }
+  .pill { pointer-events: auto; white-space: nowrap; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 0; padding: 9px 13px 8px; box-shadow: 3px 3px 0 var(--ink); transition: transform .06s, box-shadow .06s; }
+  .pill:hover, .pill:focus-visible { background: var(--gold); outline: none; }
+  .pill:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+  .seg { display: inline-flex; gap: 0; padding: 0; background: var(--paper); border: 2px solid var(--ink); border-radius: 0; box-shadow: 3px 3px 0 var(--ink); }
+  .seg button { font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button:hover { color: var(--ink); background: var(--sky); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
+
+  /* the status line is a ticker: dark band, a coral tag, text that slides in when it changes */
+  .hud { position: fixed; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none; }
+  #bottom { bottom: max(14px, env(safe-area-inset-bottom)); }
+  .ticker { display: flex; align-items: stretch; max-width: min(560px, 100%); background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--shadow); overflow: hidden; }
+  .ticker:has(#status:empty) { visibility: hidden; }
+  .ticker .tag { display: grid; place-items: center; padding: 0 9px; background: var(--accent); color: var(--ink); font: 700 10px/1 var(--sans); letter-spacing: .16em; }
+  .ticker .tag::before { content: ""; width: 7px; height: 7px; margin-bottom: 4px; background: var(--ink); animation: blink2 1s steps(1) infinite; }
+  @keyframes blink2 { 50% { opacity: 0; } }
+  #status { padding: 9px 12px 8px; background: none; border: 0; box-shadow: none; color: var(--paper); font: 600 13px/1.25 var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+  #status.tick { animation: ticker .3s steps(5) both; }
+  @keyframes ticker { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* the rules: a printed rule card with a striped header and square numbers */
+  #rules { width: min(420px, calc(100vw - 28px)); padding: 0 22px 18px; border: 3px solid var(--ink); border-radius: 0; box-shadow: 6px 6px 0 var(--ink); color: var(--ink); background: var(--paper); font: inherit; }
+  #rules::backdrop { background: rgba(30, 42, 69, .45); }
+  #rules::before { content: ""; display: block; height: 10px; margin: 0 -22px 16px; background: var(--stripe); border-bottom: 3px solid var(--ink); }
+  #rules h2 { margin: 0 0 14px; font: 400 40px/.85 var(--pixel); text-transform: uppercase; }
+  #rules h3 { margin: 16px 0 8px; font: 700 12px/1 var(--sans); text-transform: uppercase; letter-spacing: .14em; }
+  #rules ol { margin: 0 0 10px; padding: 0; list-style: none; counter-reset: r; }
+  #rules ol li { counter-increment: r; position: relative; padding-left: 34px; margin-bottom: 9px; }
+  #rules ol li::before { content: counter(r); position: absolute; left: 0; top: -1px; width: 22px; height: 22px; display: grid; place-items: center; background: var(--ink); color: var(--gold); font: 400 20px/1 var(--pixel); }
+  #rules ul { margin: 0 0 10px; padding-left: 18px; }
+  #rules p { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+  #rules a { color: inherit; text-underline-offset: 2px; }
+  #rules form { text-align: right; margin-top: 14px; }
+  @media (max-width: 600px) {
+    .hud-top { top: calc(max(14px, env(safe-area-inset-top)) + 84px); }
+    #score b { font-size: 38px; }
+    #status { font-size: 11px; }
+    .ticker .tag { padding: 0 6px; }
+  }
+  html { background: #a9d8ef; }
+  body { background: linear-gradient(180deg, #8fcbed 0%, #b6def2 35%, #d8eff3 65%, #f3eedb 100%) fixed; }
+  #sky { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  #sky i { position: absolute; display: block; background-size: 100% 100%; image-rendering: pixelated; }
+  #sky .cloud { left: -220px; animation: drift linear infinite; }
+  @keyframes drift { to { transform: translateX(calc(100vw + 440px)); } }
+  #sky .islet { animation: bob ease-in-out infinite; }
+  #sky .islet.far { opacity: .28; filter: saturate(.4) brightness(1.3) blur(.5px); }
+  #sky .islet.mid { opacity: .45; filter: saturate(.6) brightness(1.18); }
+  #sky .islet.near { opacity: .6; filter: saturate(.8) brightness(1.08); }
+  @media (max-width: 640px) { #sky .islet.near, #sky .islet.mid:nth-of-type(2n) { display: none; } #sky .islet { width: 44px !important; height: 37px !important; } #sky .thing { transform: scale(.8); } }
+  @keyframes bob { 50% { transform: translateY(-9px); } }
+  @media (prefers-reduced-motion: reduce) { #sky i { animation: none !important; } }
+  .over { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; width: min(330px, calc(100vw - 32px)); display: grid; justify-items: center; gap: 10px; padding: 0 22px 20px; border: 3px solid var(--ink); background: var(--ink); color: var(--paper); box-shadow: 6px 6px 0 var(--accent); text-align: center; pointer-events: none; animation: drop .35s steps(6) both; }
+  @keyframes drop { from { transform: translate(-50%, -80%); opacity: 0; } to { transform: translate(-50%, -50%); opacity: 1; } }
+  .over::before { content: "FULL TIME"; display: block; justify-self: stretch; margin: 0 -22px 8px; padding: 14px 0 7px; background: linear-gradient(var(--ink) 0 0) bottom / 100% 0 no-repeat, var(--stripe) top / 100% 7px no-repeat, var(--accent); color: var(--ink); font: 700 11px/1 var(--sans); letter-spacing: .32em; border-bottom: 3px solid var(--ink); }
+  .over[hidden] { display: none; }
+  .over h2 { margin: 0; font: 400 58px/.8 var(--pixel); color: var(--gold); text-transform: uppercase; text-shadow: 3px 3px 0 var(--accent); }
+  .over p { margin: 0; color: var(--paper); font: 600 15px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+  .over small { color: #a9b3c6; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  .over .over-again { pointer-events: auto; background: var(--gold); color: var(--ink); border-color: var(--paper); box-shadow: 3px 3px 0 var(--accent); margin-top: 6px; padding: 11px 18px 10px; }
+  .over .over-again:hover, .over .over-again:focus-visible { background: var(--accent); }  #racks { display: flex; gap: 6px; }
+  .rack { display: flex; gap: 2px; }
+  .rack i { width: 8px; height: 8px; border-radius: 2px; border: 1.5px solid var(--ink); opacity: .2; }
+  .rack i.money { border-color: var(--gold); }
+  .rack i.now { opacity: 1; }
+  .rack i.hit { background: var(--ink); opacity: 1; }
+  .rack i.money.hit { background: var(--gold); }
+  .rack i.miss { background: var(--muted); border-color: var(--muted); opacity: .35; }
+  #stage { z-index: 1; }
+</style>
+</head>
+<body>
+<div id="sky" aria-hidden="true"><i class="cloud" style="top:8%;width:220px;height:110px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2022%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2212%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%221%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%224%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:160s;animation-delay:0s;opacity:0.85"></i><i class="cloud" style="top:26%;width:160px;height:97px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2018%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2212%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%222%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2210%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%227%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%228%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:130s;animation-delay:-60s;opacity:0.7"></i><i class="cloud" style="top:16%;width:260px;height:110px;background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2026%2011%22%20shape-rendering%3D%22crispEdges%22%3E%3Cg%20fill%3D%22%23fff%22%3E%3Crect%20x%3D%2217%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%224%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2219%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%223%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3Cg%20fill%3D%22%23c9dbec%22%3E%3Crect%20x%3D%2219%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%220%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2213%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2214%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2217%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2212%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2218%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%225%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2216%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2220%22%20y%3D%229%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%2221%22%20y%3D%228%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%221%22%20y%3D%226%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%226%22%20y%3D%225%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%222%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3Crect%20x%3D%224%22%20y%3D%227%22%20width%3D%221%22%20height%3D%221%22/%3E%3C/g%3E%3C/svg%3E');animation-duration:190s;animation-delay:-110s;opacity:0.8"></i></div>
+<div id="stage"><canvas id="c" tabindex="0" aria-label="Basketball court. Hold and release to shoot, or use the space bar."></canvas></div>
+<div id="score" class="chip">
+  <div class="line"><b id="pts">0</b><span>pts</span></div>
+  <div id="racks"></div>
+  <span id="best"></span>
+</div>
+<div class="hud-top"><div id="clock" class="chip">50</div></div>
+<div class="nav">
+  <button id="menu-back" class="pill" type="button" hidden>Menu</button>
+  <button id="rules-open" class="pill" type="button">Rules</button>
+</div>
+<dialog id="rules" aria-labelledby="rules-title">
+  <h2 id="rules-title">Three-Point</h2>
+  <ol>
+    <li>Five racks, five balls each. You have 50 seconds, and the clock starts with your first shot.</li>
+    <li>Hold to fill the power bar; it rises and falls. Let go while it is in the green zone. Use a finger, the mouse or space.</li>
+    <li>Let go too early and the shot falls short; too late and it clangs off the back rim.</li>
+    <li>Each basket is 1 point. The last, striped ball on each rack is the money ball, worth 2. The maximum is 30.</li>
+  </ol>
+  <p>Rendering core adapted from <a href="https://github.com/amirmushichge/pixel-plays" target="_blank" rel="noopener noreferrer">Pixel Plays</a> (MIT).</p>
+  <form method="dialog"><button class="pill">Close</button></form>
+</dialog>
+<div class="hud" id="bottom">
+  <div class="ticker"><span class="tag">LIVE</span><div id="status" role="status" aria-live="polite"></div></div>
+  <button id="mute" class="pill" type="button" aria-pressed="false">sound on</button>
+</div>
+<div id="over" class="over" role="status" hidden>
+  <h2 id="over-title"></h2>
+  <p id="over-text"></p>
+  <button id="again" class="pill over-again" type="button">Play again</button>
+  <small>or tap the field, or press space</small>
+</div>
+<script>
+'use strict';
+const SCENE = { W: 440, H: 300, S: 20, ox: 19, oy: 14 };
+/* ================= renderer (adapted from Pixel Plays engine.js, MIT) ================= */
+const W = SCENE.W, H = SCENE.H, S = SCENE.S;
+const SIN = .5, COS = Math.sqrt(3) / 2, R2 = Math.SQRT2;
+const OX = W / 2 + SCENE.ox, OY = H / 2 + SCENE.oy;
+const SHADOW_X = 1.3, SHADOW_Y = -.12;
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+const image = ctx.createImageData(W, H);
+const pix = new Uint32Array(image.data.buffer);
+const zb = new Float32Array(W * H);
+const bakedPix = new Uint32Array(W * H), bakedZ = new Float32Array(W * H);
+const ground = new Uint8Array(W * H), shadowMask = new Uint8Array(W * H), groundZ = new Float32Array(W * H);
+const kinds = new Uint8Array(W * H), staticShadow = new Uint8Array(W * H);
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + .5) / 16);
+const COOL = [46, 38, 84], WARM = [255, 232, 180];
+const GRASS = [[34, 62, 50], [52, 88, 52], [82, 118, 54], [124, 146, 62], [168, 172, 76]];
+const GRADIENT_Y = COS / (S * SIN), EDGE = .28;
+const KIND_NONE = 0, KIND_COURT = 1, KIND_ASPHALT = 2, KIND_GRASS = 3;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t * t * (3 - 2 * t);
+const rgb = (r, g, b) => (255 << 24 | clamp(b | 0, 0, 255) << 16 | clamp(g | 0, 0, 255) << 8 | clamp(r | 0, 0, 255)) >>> 0;
+const ramps = new WeakMap();
+// hue-shifted ramp: shadows drift to violet, lights drift to warm yellow
+function rampOf(c) {
+  let ramp = ramps.get(c);
+  if (ramp) return ramp;
+  const mix = (m, t, k) => rgb(lerp(c[0] * m, t[0], k), lerp(c[1] * m, t[1], k), lerp(c[2] * m, t[2], k));
+  ramp = [mix(.4, COOL, .34), mix(.62, COOL, .18), mix(.84, COOL, .05), mix(1, WARM, 0), mix(1.1, WARM, .22)];
+  ramps.set(c, ramp);
+  return ramp;
+}
+// closely spaced tones for big flat surfaces, so the dither never reads as a checkerboard
+const toneCache = new WeakMap();
+function tonesOf(c) {
+  let t = toneCache.get(c);
+  if (!t) { t = [.92, .96, 1, 1.04].map(m => rgb(c[0] * m, c[1] * m, c[2] * m)); toneCache.set(c, t); }
+  return t;
+}
+const bayerAt = (ix, iy) => BAYER[(iy & 3) * 4 + (ix & 3)];
+function tint(i, r, g, b) {
+  const c = pix[i];
+  pix[i] = rgb((c & 255) * r, (c >> 8 & 255) * g, (c >> 16 & 255) * b);
+}
+function hash(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+function noise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = ease(x - ix), fy = ease(y - iy);
+  return lerp(lerp(hash(ix, iy), hash(ix + 1, iy), fx), lerp(hash(ix, iy + 1), hash(ix + 1, iy + 1), fx), fy);
+}
+function project(x, y, z) {
+  const u = (x - y) / R2, v = (x + y) / R2;
+  return { sx: OX + u * S, sy: OY + (v * SIN - z * COS) * S, d: v * COS + z * SIN };
+}
+function unproject(sx, sy) {
+  const u = (sx - OX) / S, v = (sy - OY) / (S * SIN);
+  return { x: (u + v) / R2, y: (v - u) / R2 };
+}
+let capture = null;
+function sphere(x, y, z, r, c, mode) {
+  const ramp = rampOf(c);
+  const p = project(x, y, z), rp = Math.max(r * S, .75);
+  const y0 = Math.max(0, Math.floor(p.sy - rp)), y1 = Math.min(H - 1, Math.ceil(p.sy + rp));
+  const x0 = Math.max(0, Math.floor(p.sx - rp)), x1 = Math.min(W - 1, Math.ceil(p.sx + rp));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rp, dy = (iy + .5 - p.sy) / rp, nn = dx * dx + dy * dy;
+    if (nn > 1) continue;
+    const nz = Math.sqrt(1 - nn), d = p.d + r * nz, i = iy * W + ix;
+    if (d <= zb[i]) continue;
+    let l = clamp(-.55 * dx - .6 * dy + .58 * nz, 0, 1);
+    if (mode === 'rough') l += (hash(ix, iy) - .5) * .55;
+    if (dy > .35) l = Math.max(l, .12 + dy * .24);
+    if (capture) { capture.push(ix, iy, d, ramp[clamp(Math.floor(l * 4.4 + .2 + (bayerAt(ix, iy) - .5) * .7), 0, 4)]); continue; }
+    zb[i] = d;
+    if (mode === 'gloss' && l > .9) { pix[i] = rgb(255, 250, 232); continue; }
+    if (mode === 'solid') { pix[i] = ramp[clamp(Math.floor(l * 4.4 + .2), 1, 4)]; continue; }
+    pix[i] = ramp[clamp(Math.floor(l * 4.4 + .2 + (bayerAt(ix, iy) - .5) * .7), 0, 4)];
+  }
+}
+function capsule(a, b, r0, r1, colorOf, mode) {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const n = Math.max(1, Math.ceil(len / (Math.min(r0, r1) * .45)));
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, z = lerp(a[2], b[2], t);
+    sphere(lerp(a[0], b[0], t), lerp(a[1], b[1], t), z, lerp(r0, r1, t), colorOf(z), mode);
+  }
+}
+function box(x0, y0, z0, x1, y1, z1, c, seed = 0) {
+  const ramp = rampOf(c);
+  const paint = (x, y, z, base, grain) => {
+    const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+    if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+    const i = iy * W + ix;
+    if (p.d <= zb[i]) return;
+    zb[i] = p.d;
+    pix[i] = ramp[clamp(Math.floor(base + (grain - .5) * .8 + (bayerAt(ix, iy) - .5) * .4), 0, 4)];
+  };
+  const step = .6 / S, longX = x1 - x0 >= y1 - y0;
+  for (let a = x0; a <= x1; a += step) for (let b = y0; b <= y1; b += step) paint(a, b, z1, 3.4, longX ? noise(a * .8 + seed, b * 9) : noise(a * 9, b * .8 + seed));
+  for (let a = x0; a <= x1; a += step) for (let b = z0; b <= z1; b += step) paint(a, y1, b, 2.3, noise(a * .8 + seed, b * 9));
+  for (let a = y0; a <= y1; a += step) for (let b = z0; b <= z1; b += step) paint(x1, a, b, 1.2, noise(a * .8 + seed, b * 9));
+}
+function plot(x, y, z, color) {
+  const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+  if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+  const i = iy * W + ix;
+  if (p.d <= zb[i]) return;
+  zb[i] = p.d;
+  pix[i] = color;
+}
+function castShadow(x, y, z, r, strength = 1, dither = .4) {
+  const p = project(x + SHADOW_X * z, y + SHADOW_Y * z, 0);
+  const rx = r * S * 1.05, ry = rx * SIN + 1;
+  const y0 = Math.max(0, Math.floor(p.sy - ry)), y1 = Math.min(H - 1, Math.ceil(p.sy + ry));
+  const x0 = Math.max(0, Math.floor(p.sx - rx)), x1 = Math.min(W - 1, Math.ceil(p.sx + rx));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rx, dy = (iy + .5 - p.sy) / ry;
+    if (dx * dx + dy * dy + (bayerAt(ix, iy) - .5) * dither > 1) continue;
+    const i = iy * W + ix;
+    if (shadowMask[i] < strength) shadowMask[i] = strength;
+  }
+}
+function applyShadows(refZ) {
+  for (let i = 0; i < pix.length; i++) {
+    const s = shadowMask[i];
+    if (!s) continue;
+    shadowMask[i] = 0;
+    if (!ground[i] || zb[i] !== refZ[i]) continue;
+    if (s === 1) tint(i, .54, .52, .72);
+    else tint(i, .36, .34, .56);
+  }
+}
+// an object darkens its own silhouette against the ground, and gets a warm rim only over another object
+function shadeEdges() {
+  for (let iy = 1; iy < H - 1; iy++) for (let ix = 1; ix < W - 1; ix++) {
+    const i = iy * W + ix, d = zb[i];
+    if (d < -1e8 || d === groundZ[i]) continue;
+    const a = i - W, b = i + W, c = i - 1, e = i + 1;
+    if (zb[a] === groundZ[a] || zb[b] === groundZ[b] || zb[c] === groundZ[c] || zb[e] === groundZ[e]) {
+      tint(i, .5, .48, .6);
+    } else if (d - zb[a] - GRADIENT_Y > EDGE || d - zb[c] > EDGE) {
+      const p = pix[i];
+      pix[i] = rgb(lerp(p & 255, WARM[0], .3), lerp(p >> 8 & 255, WARM[1], .3), lerp(p >> 16 & 255, WARM[2], .22));
+    } else if (zb[e] - d > EDGE || zb[b] - GRADIENT_Y - d > EDGE) {
+      tint(i, .74, .72, .82);
+    }
+  }
+}
+/* ---------- wind ---------- */
+const WIND_FPS = 8;
+const STILL = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const tufts = [], leaves = [];
+const tuftLit = GRASS.map(c => rgb(...c)), tuftDark = GRASS.map(c => rgb(c[0] * .54, c[1] * .52, c[2] * .72));
+function growGrass() {
+  for (let iy = 3; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+    const i = iy * W + ix;
+    if (kinds[i] !== KIND_GRASS || hash(ix * 3, iy * 5) > .17) continue;
+    tufts.push({
+      ix, iy, i, height: 1 + (hash(ix, iy * 2) * 4 | 0), base: Math.round(noise(ix * .09, iy * .18) * 2.2),
+      phase: ix * .11 + iy * .19 + hash(ix, iy) * .9,
+      bloom: hash(ix * 7, iy) < .022 ? rgb(...(hash(ix, iy) > .5 ? [250, 246, 226] : [240, 200, 84])) : 0,
+    });
+  }
+}
+function drawTufts(t) {
+  for (const tuft of tufts) {
+    const gust = Math.sin(t * .8 + tuft.phase) + .5 * Math.sin(t * 2.1 + tuft.phase * 2.3);
+    const colors = staticShadow[tuft.i] ? tuftDark : tuftLit;
+    for (let k = 1; k <= tuft.height; k++) {
+      const jx = tuft.ix + Math.round(gust * .95 * k / 3), jy = tuft.iy - k;
+      if (jx < 0 || jx >= W) continue;
+      const j = jy * W + jx;
+      if ((kinds[j] !== KIND_GRASS && kinds[j] !== KIND_NONE) || zb[j] !== groundZ[j]) continue;
+      pix[j] = tuft.bloom && k === tuft.height ? tuft.bloom : colors[clamp(tuft.base + k + (gust > 1 ? 1 : 0), 1, 4)];
+    }
+  }
+}
+function drawLeaves(t) {
+  for (const leaf of leaves) {
+    const reach = clamp((leaf.z - 2.5) / 3, .3, 1);
+    const swayX = (Math.sin(t * .9 + leaf.x * .5 + leaf.z * .7) + .55 * Math.sin(t * 2.3 + leaf.k * 1.7)) * reach;
+    const dx = Math.round(swayX * .9), dy = Math.round(Math.sin(t * 1.3 + leaf.y + leaf.k) * reach * .45);
+    const px = leaf.pixels;
+    for (let n = 0; n < px.length; n += 4) {
+      const ix = px[n] + dx, iy = px[n + 1] + dy;
+      if (ix < 0 || iy < 0 || ix >= W || iy >= H) continue;
+      const i = iy * W + ix;
+      if (px[n + 2] <= zb[i]) continue;
+      zb[i] = px[n + 2];
+      pix[i] = px[n + 3];
+    }
+    if (leaf.k % 2 === 0) castShadow(leaf.x + swayX * .12, leaf.y, leaf.z, leaf.r);
+  }
+}
+function bakeOcclusion() {
+  const offsets = [];
+  for (const r of [3, 5]) for (let k = 0; k < 8; k++) offsets.push([Math.round(Math.cos(k * Math.PI / 4) * r), Math.round(Math.sin(k * Math.PI / 4) * r * .7)]);
+  for (let iy = 4; iy < H - 4; iy++) for (let ix = 4; ix < W - 4; ix++) {
+    const i = iy * W + ix;
+    if (!ground[i] || zb[i] !== groundZ[i]) continue;
+    let hits = 0;
+    for (const [ox, oy] of offsets) { const j = (iy + oy) * W + ix + ox; if (zb[j] !== groundZ[j]) hits++; }
+    if (!hits) continue;
+    if (hits >= 8) tint(i, .56, .54, .72);
+    else if (hits / 8 > bayerAt(ix, iy)) tint(i, .74, .72, .84);
+  }
+}
+const CROWN = [[.1, 0, 3.7, 1.6], [-1.4, -.7, 3.3, 1.2], [1.6, .7, 3.4, 1.25], [-.6, 1.1, 3.9, 1.1], [.9, -1.1, 4, 1.1], [.2, .1, 4.9, 1.05]];
+const LEAF_DEEP = [58, 84, 62], LEAF_MID = [100, 126, 78], LEAF_SILVER = [146, 162, 112], BARK = [92, 74, 60];
+function growTree(x, y, scale = 1, count = 420, seed = 0) {
+  const bark = () => BARK;
+  capsule([x, y, 0], [x + .3 * scale, y + .1 * scale, 2.2 * scale], .36 * scale, .22 * scale, bark, 'rough');
+  capsule([x + .3 * scale, y + .1 * scale, 2.2 * scale], [x - .8 * scale, y - .4 * scale, 3.3 * scale], .2 * scale, .13 * scale, bark, 'rough');
+  capsule([x + .3 * scale, y + .1 * scale, 2.2 * scale], [x + 1.2 * scale, y + .4 * scale, 3.4 * scale], .2 * scale, .13 * scale, bark, 'rough');
+  for (let s = 0; s <= 1; s += .1) castShadow(x + .3 * scale * s, y, 2.2 * scale * s, .3 * scale);
+  for (let n = 0; n < count; n++) {
+    const k = n + seed, [cx, cy, cz, spread] = CROWN[n % CROWN.length];
+    const a = hash(k, 7) * 6.283, tilt = hash(k, 8) * 2 - 1, d = Math.cbrt(hash(k, 9)) * spread, flat = Math.sqrt(1 - tilt * tilt);
+    const rx = cx + Math.cos(a) * flat * d, ry = cy + Math.sin(a) * flat * d, rz = cz + tilt * d * .8;
+    const tone = hash(k, 10) + (rz - 4.2) * .22 + (d / spread - .5) * .3;
+    const leaf = tone > .72 ? LEAF_SILVER : tone > .3 ? LEAF_MID : LEAF_DEEP;
+    capture = [];
+    sphere(x + rx * scale, y + ry * scale, rz * scale, (.2 + hash(k, 11) * .22) * scale, leaf, 'rough');
+    leaves.push({ x: x + rx * scale, y: y + ry * scale, z: rz * scale, k, r: .42 * scale, pixels: capture });
+    capture = null;
+  }
+}
+const pendingShadows = [];
+function flushShadows() {
+  for (let i = 0; i < pendingShadows.length; i += 4) {
+    const a = pendingShadows[i], ra = pendingShadows[i + 1], c = pendingShadows[i + 2];
+    const n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1], c[2] - a[2]) / .25));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      castShadow(lerp(a[0], c[0], t), lerp(a[1], c[1], t), lerp(a[2], c[2], t), ra * .9, 1, 0);
+    }
+    if (a[2] < .25) castShadow(a[0], a[1], 0, .2, 2, 0);
+  }
+  pendingShadows.length = 0;
+}
+// the arcade's palette: navy ink, coral signal, and the sky the islands float in
+// empty sky is transparent, so the page's own sky shows through
+const CLEAR = 0;
+const INK = rgb(30, 42, 69), SIGNAL = rgb(255, 106, 61), PAPER = rgb(228, 238, 242);
+function dot(ix, iy, c) { if (ix >= 0 && iy >= 0 && ix < W && iy < H) pix[iy * W + ix] = c; }
+function fit() {
+  const dpr = window.devicePixelRatio || 1;
+  const fitScale = Math.min(innerWidth / W, (innerHeight - 84) / H);
+  // whole device pixels keep every art pixel the same size; when that would waste
+  // more than a sixth of the screen, fill it instead (the unevenness is a pixel at most)
+  const exact = fitScale * dpr, whole = Math.floor(exact);
+  const scale = Math.max(1, whole >= exact * .84 ? whole : exact) / dpr;
+  canvas.style.width = W * scale + 'px';
+  canvas.style.height = H * scale + 'px';
+}
+
+
+/* ================= figures ================= */
+function ik(a, c, l1, l2, bend) {
+  let dx = c[0] - a[0], dy = c[1] - a[1], dz = c[2] - a[2];
+  let d = Math.hypot(dx, dy, dz) || 1e-6;
+  const reach = (l1 + l2) * .995;
+  if (d > reach) { const k = reach / d; dx *= k; dy *= k; dz *= k; d = reach; }
+  const ux = dx / d, uy = dy / d, uz = dz / d;
+  const x = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+  let bx = bend[0], by = bend[1], bz = bend[2];
+  const dt = bx * ux + by * uy + bz * uz;
+  bx -= dt * ux; by -= dt * uy; bz -= dt * uz;
+  const bl = Math.hypot(bx, by, bz) || 1;
+  return {
+    m: [a[0] + ux * x + bx / bl * h, a[1] + uy * x + by / bl * h, a[2] + uz * x + bz / bl * h],
+    e: [a[0] + dx, a[1] + dy, a[2] + dz],
+  };
+}
+function body(crouch, lean) {
+  const hipZ = 1.28 - crouch * .42, hipA = -crouch * .16;
+  return { hipZ, hipA, shA: hipA + Math.sin(lean) * .95, shZ: hipZ + Math.cos(lean) * .95 };
+}
+// flat bands with no dither and a dark silhouette, so figures stay sharp on the textured court
+function player(px, py, yaw, pose, pal) {
+  const fx = Math.cos(yaw), fy = Math.sin(yaw), sx = -fy, sy = fx, base = pose.z || 0;
+  const P = (a, b, c) => [px + fx * a + sx * b, py + fy * a + sy * b, c + base];
+  const add = (a, b, r0, r1, col) => {
+    capsule(a, b, r0, r1, typeof col === 'function' ? col : () => col, 'solid');
+    pendingShadows.push(a, r0, b, r1);
+  };
+  const lean = pose.lean || 0, fr = body(pose.crouch || 0, lean), fwd = [fx, fy, 0];
+  for (const [side, foot] of [[.15, pose.footR || [.1, 0]], [-.15, pose.footL || [-.08, 0]]]) {
+    const [fa, lift] = foot, hip = P(fr.hipA, side, fr.hipZ);
+    const leg = ik(hip, P(fa, side * 1.3, .11 + lift), .62, .6, fwd);
+    add(hip, leg.m, .18, .15, pal.shorts);
+    add(leg.m, leg.e, .12, .1, z => z - base - lift < .36 ? pal.sock : pal.shin || pal.skin);
+    add(leg.e, [leg.e[0] + fx * .17, leg.e[1] + fy * .17, leg.e[2] - .03], .1, .09, pal.shoe);
+  }
+  const waist = P(fr.hipA, 0, fr.hipZ - .04), neck = P(fr.shA, 0, fr.shZ + .06), hz = base + fr.hipZ + .12;
+  add(waist, neck, .29, .32, z => z < hz ? pal.shorts : pal.jersey);
+  const head = P(fr.shA + Math.sin(lean) * .3, 0, fr.shZ + .36);
+  add(neck, head, .11, .12, pal.skin);
+  add(head, head, .24, .24, pal.skin);
+  const hair = [head[0] - fx * .06, head[1] - fy * .06, head[2] + .08];
+  add(hair, hair, .205, .205, pal.hair);
+  for (const [side, hand] of [[.35, pose.hR], [-.35, pose.hL]]) {
+    const sg = Math.sign(side), sh = P(fr.shA, side, fr.shZ - .04);
+    const target = hand ? P(hand[0], hand[1], hand[2]) : P(fr.shA + .04, side * 1.2, fr.shZ - .9);
+    const arm = ik(sh, target, .46, .47, [sx * sg * .7 - fx * .2, sy * sg * .7 - fy * .2, -.7]);
+    add(sh, sh, .14, .14, pal.jersey);
+    add(sh, arm.m, .1, .085, pal.sleeve || pal.skin);
+    add(arm.m, arm.e, .085, .075, pal.skin);
+  }
+  return pose.ball ? P(pose.ball[0], pose.ball[1], pose.ball[2]) : null;
+}
+
+
+/* ================= audio ================= */
+let audio = null, muted = false, noiseBuf = null;
+function ensureAudio() {
+  if (audio) { if (audio.state === 'suspended') audio.resume().catch(() => {}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { audio = new AC(); } catch (e) { audio = null; return; }
+  noiseBuf = audio.createBuffer(1, audio.sampleRate / 2, audio.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function tone(f0, f1, dur, vol, type, delay = 0) {
+  const now = audio.currentTime + delay, g = audio.createGain(), o = audio.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, now);
+  o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+  g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(.0005, now + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(now); o.stop(now + dur + .02);
+}
+function hiss(dur, freq, q, vol, delay = 0) {
+  const now = audio.currentTime + delay, src = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
+  src.buffer = noiseBuf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  g.gain.setValueAtTime(.0005, now);
+  g.gain.linearRampToValueAtTime(vol, now + dur * .25);
+  g.gain.exponentialRampToValueAtTime(.0005, now + dur);
+  src.connect(f).connect(g).connect(audio.destination);
+  src.start(now); src.stop(now + dur + .02);
+}
+
+/* ================= game over ================= */
+/* ================= game over card ================= */
+// shows when a round ends; it stays until the player starts again (tap, Space, or the button)
+const overEl = document.getElementById('over');
+function showOver(title, text) {
+  document.getElementById('over-title').textContent = title;
+  document.getElementById('over-text').textContent = text;
+  overEl.hidden = false;
+}
+function hideOver() { overEl.hidden = true; }
+function replayGame() { if (G.phase === 'over' && G.phaseT > .6) reset(); }
+document.getElementById('again').addEventListener('click', e => { e.stopPropagation(); replayGame(); });
+// any reset (tap, Space, the button) moves the game off 'over', so the card goes with it
+setInterval(() => { if (!overEl.hidden && G.phase !== 'over') overEl.hidden = true; }, 120);
+
+// the status ticker slides each new message in
+(() => {
+  const st = document.getElementById('status');
+  if (!st) return;
+  new MutationObserver(() => { st.classList.remove('tick'); void st.offsetWidth; st.classList.add('tick'); }).observe(st, { childList: true, characterData: true, subtree: true });
+})();
+
+/* ================= the court ================= */
+const GRAV = 13, BALL_R = .22, RIM_R = .4, RIM_T = .035;
+const BOARD = { x0: -5.52, x1: -5.4, y0: -1.1, y1: 1.1, z0: 3.42, z1: 4.72, bounce: .6, sound: 'board' };
+const RIM_X = BOARD.x1 + .13 + RIM_R, RIM_Z = 3.72;
+const POLE = { x0: -6.8, x1: -6.52, y0: -.14, y1: .14, z0: 0, z1: 4.5, bounce: .5, sound: 'board' };
+const ARM = { x0: -6.52, x1: BOARD.x0, y0: -.09, y1: .09, z0: 3.96, z1: 4.1, bounce: .5, sound: 'board' };
+const COLLIDERS = [BOARD, POLE, ARM];
+const COURT = { x0: -6, x1: 3.6, y: 6.4 };
+const ARC_R = 6.1, CORNER_Y = 5.3, ARC_JOIN = RIM_X + Math.sqrt(ARC_R * ARC_R - CORNER_Y * CORNER_Y);
+const KEY_Y = 1.55, FT_X = RIM_X + 3.85, FT_R = 1.55;
+const ISLAND = { cx: -1.2, ax: 7.05, ay: 8.9 };
+const RACK_H = .6;
+
+const C_IN = [98, 134, 162], C_OUT = [82, 116, 148], C_KEY = [178, 96, 70], C_LINE = [238, 234, 220];
+const C_ASPHALT = [100, 98, 104];
+const C_POLE = [64, 72, 88], C_PAD = [52, 86, 140], C_BOARD = [236, 236, 230], C_BOARD_LINE = [44, 48, 62];
+const C_RIM = [222, 92, 42], C_METAL = [150, 156, 166], C_WOOD = [150, 106, 64], C_WOOD_D = [118, 82, 50];
+const C_BAG = [44, 84, 120], C_BOTTLE = [72, 140, 170];
+const NET_FRONT = rgb(246, 244, 236), NET_BACK = rgb(176, 174, 186);
+const BALL_C = [208, 104, 44], SEAM_C = [64, 40, 34];
+const MONEY_C = [[204, 54, 46], [240, 236, 226], [46, 82, 156]];
+const SHOOTER = { jersey: [200, 62, 50], shorts: [178, 52, 44], skin: [196, 144, 106], hair: [36, 28, 24], sock: [242, 240, 232], shoe: [48, 46, 58] };
+const FAN = { jersey: [74, 124, 96], shorts: [62, 68, 90], shin: [62, 68, 90], sock: [62, 68, 90], sleeve: [74, 124, 96], skin: [224, 176, 138], hair: [124, 86, 54], shoe: [232, 228, 218] };
+const FAN_POS = [-.05, -6.95];
+
+function islandEdge(x, y) { return Math.pow(Math.pow(Math.abs(x - ISLAND.cx) / ISLAND.ax, 4) + Math.pow(Math.abs(y) / ISLAND.ay, 4), .25); }
+const onIsland = (x, y) => islandEdge(x, y) < .97;
+
+// five racks: corner, wing, top, wing, corner. Each rack runs across the screen beside its shooter,
+// at the same depth, so it never hides him and never reads as a tower pointing at the camera
+const ACROSS = [1 / R2, -1 / R2];
+const SPOTS = [[-82, 5.7, 1], [-45, 6.45, 1], [0, 6.45, 1], [45, 6.45, -1], [82, 5.7, -1]].map(([deg, r, side]) => {
+  const a = deg * Math.PI / 180, out = [Math.cos(a), Math.sin(a)];
+  const x = RIM_X + out[0] * r, y = out[1] * r;
+  const dir = [ACROSS[0] * side, ACROSS[1] * side];
+  return { x, y, dir, rack: [x + dir[0] * 1.65, y + dir[1] * 1.65], dist: r };
+});
+function rackBall(r, k) {
+  const s = SPOTS[r], o = (k - 2) * .46;
+  return [s.rack[0] + s.dir[0] * o, s.rack[1] + s.dir[1] * o, RACK_H + BALL_R + .01];
+}
+
+function courtLine(x, y) {
+  const L = .07, ay = Math.abs(y);
+  if (Math.abs(x - COURT.x0) < L && ay <= COURT.y + L) return true;
+  if (Math.abs(x - COURT.x1) < L && ay <= COURT.y + L) return true;
+  if (Math.abs(ay - COURT.y) < L && x >= COURT.x0 - L && x <= COURT.x1 + L) return true;
+  if (x >= COURT.x0 && x <= FT_X + L && Math.abs(ay - KEY_Y) < L) return true;
+  if (Math.abs(x - FT_X) < L && ay <= KEY_Y) return true;
+  const dr = Math.hypot(x - RIM_X, y), df = Math.hypot(x - FT_X, y);
+  if (Math.abs(df - FT_R) < L && (x >= FT_X || Math.sin(Math.atan2(y, x - FT_X) * 9) > 0)) return true;
+  if (x <= ARC_JOIN && x >= COURT.x0 && Math.abs(ay - CORNER_Y) < L) return true;
+  if (x >= ARC_JOIN && Math.abs(dr - ARC_R) < L) return true;
+  if (x >= RIM_X && Math.abs(dr - 1.05) < L) return true;
+  if (x <= COURT.x1 && Math.abs(Math.hypot(x - COURT.x1, y) - 1.55) < L) return true;
+  return false;
+}
+function pick(tones, v, ix, iy, dither = .6) { return tones[clamp(Math.floor(v * 4 + (bayerAt(ix, iy) - .5) * dither), 0, 3)]; }
+function groundColor(x, y, ix, iy, i) {
+  const edge = islandEdge(x, y), rough = edge + (noise(x * 1.3, y * 1.3) - .5) * .12;
+  if (rough > 1.04) return 0;
+  if (rough > .93 && hash(ix, iy) < (rough - .93) / .11) return 0;
+  const fine = hash(ix, iy), ay = Math.abs(y);
+  const onCourt = x >= COURT.x0 - .07 && x <= COURT.x1 + .07 && ay <= COURT.y + .07;
+  if (onCourt) {
+    kinds[i] = KIND_COURT;
+    if (courtLine(x, y)) return rgb(...C_LINE);
+    const inKey = x >= COURT.x0 && x <= FT_X && ay <= KEY_Y;
+    const inArc = x < ARC_JOIN ? ay < CORNER_Y : Math.hypot(x - RIM_X, y) < ARC_R;
+    const c = inKey ? C_KEY : inArc ? C_IN : C_OUT;
+    // sun-bleached patches and scuffs where shooters stand
+    let v = .5 + (noise(x * .6, y * .6) - .5) * .45 + (noise(x * 2.4, y * 2.4) - .5) * .1;
+    for (const s of SPOTS) { const d = Math.hypot(x - s.x, y - s.y); if (d < 1) v -= (1 - d) * noise(x * 3, y * 3) * .35; }
+    return pick(tonesOf(c), v, ix, iy, .35);
+  }
+  const out = Math.max(COURT.x0 - x, x - COURT.x1, ay - COURT.y);
+  if (out < .85 + noise(x * 2.2, y * 2.2) * .7) {
+    kinds[i] = KIND_ASPHALT;
+    if (fine > .988) return rampOf(C_ASPHALT)[4];
+    if (hash(ix - 1, iy - 1) > .988) return rampOf(C_ASPHALT)[1];
+    return pick(tonesOf(C_ASPHALT), .5 + (noise(x * 3, y * 3) - .5) * .6, ix, iy, .45);
+  }
+  kinds[i] = KIND_GRASS;
+  const t = noise(x * .9, y * .9) * 1.15 + (fine - .5) * .55 - .08;
+  return rgb(...GRASS[clamp(Math.floor(t * 4.2), 0, 3)]);
+}
+// the light the spheres use, as a world vector, so thin plotted parts match them
+const LX = -.246, LY = .532, LZ = .81;
+function litLevel(nx, ny, nz) { return clamp(Math.floor(((nx * LX + ny * LY + nz * LZ) * .5 + .5) * 4.3 + .2), 1, 4); }
+function drawBoard() {
+  const b = BOARD, step = .6 / S, white = rampOf(C_BOARD), line = rampOf(C_BOARD_LINE);
+  const paint = (x, y, z, c) => {
+    const p = project(x, y, z), ix = p.sx | 0, iy = p.sy | 0;
+    if (ix < 0 || iy < 0 || ix >= W || iy >= H) return;
+    const i = iy * W + ix;
+    if (p.d <= zb[i]) return;
+    zb[i] = p.d; pix[i] = c;
+  };
+  for (let a = b.x0; a <= b.x1; a += step) for (let c = b.y0; c <= b.y1; c += step) paint(a, c, b.z1, line[3]);
+  for (let a = b.x0; a <= b.x1; a += step) for (let c = b.z0; c <= b.z1; c += step) paint(a, b.y1, c, line[2]);
+  for (let y = b.y0; y <= b.y1; y += step) for (let z = b.z0; z <= b.z1; z += step) {
+    const border = Math.abs(y) > b.y1 - .075 || z < b.z0 + .075 || z > b.z1 - .075;
+    const sq = Math.abs(y) < .32 && z > RIM_Z + .05 && z < RIM_Z + .5;
+    const sqLine = sq && (Math.abs(y) > .32 - .05 || z < RIM_Z + .1 || z > RIM_Z + .5 - .05);
+    let c;
+    if (border || sqLine) c = line[3];
+    else {
+      // a faint diagonal sheen across the acrylic
+      const sheen = (y * .8 + z * 1.4) % 1.1;
+      c = white[sheen > .78 && sheen < .9 ? 4 : 3];
+    }
+    paint(b.x1, y, z, c);
+  }
+}
+function drawRim() {
+  const ramp = rampOf(C_RIM);
+  for (let a = 0; a < 6.2832; a += .01) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (let k = 0; k < 8; k++) {
+      const phi = k / 8 * 6.2832, cp = Math.cos(phi), sp = Math.sin(phi);
+      const rr = RIM_R + RIM_T * cp;
+      plot(RIM_X + ca * rr, sa * rr, RIM_Z + RIM_T * sp, ramp[litLevel(ca * cp, sa * cp, sp)]);
+    }
+  }
+}
+// a solid metal ball cart: a shallow tray on a lower body, short legs below
+function drawRackFrame(s) {
+  const side = [-s.dir[1], s.dir[0]], ramp = rampOf(C_METAL), step = .5 / S;
+  const L = 1.15, Wd = .17, top = RACK_H, low = .2;
+  const at = (o, w, z) => [s.rack[0] + s.dir[0] * o + side[0] * w, s.rack[1] + s.dir[1] * o + side[1] * w, z];
+  const face = (n, fn, ua, ub, va, vb) => {
+    const c = ramp[litLevel(n[0], n[1], n[2])];
+    for (let u = ua; u <= ub; u += step) for (let v = va; v <= vb; v += step) { const q = fn(u, v); plot(q[0], q[1], q[2], c); }
+  };
+  for (const sg of [-1, 1]) {
+    face([side[0] * sg, side[1] * sg, 0], (u, v) => at(u, Wd * sg, v), -L, L, low, top);
+    face([s.dir[0] * sg, s.dir[1] * sg, 0], (u, v) => at(L * sg, u, v), -Wd, Wd, low, top);
+  }
+  face([0, 0, 1], (u, v) => at(u, v, top), -L, L, -Wd, Wd);
+  // a darker groove along the tray where the balls sit
+  const groove = ramp[1];
+  for (let u = -L + .06; u <= L - .06; u += step) { const q = at(u, 0, top + .002); plot(q[0], q[1], q[2], groove); }
+  const metal = () => C_METAL;
+  for (const o of [-L + .1, L - .1]) for (const w of [-Wd + .05, Wd - .05]) {
+    const q = at(o, w, 0);
+    capsule(q, [q[0], q[1], low], .05, .05, metal, 'solid');
+  }
+  for (let o = -L; o <= L; o += .12) for (const w of [-Wd, 0, Wd]) {
+    const q = at(o, w, 0);
+    castShadow(q[0], q[1], top, .09, 1, 0);
+    castShadow(q[0], q[1], low + .1, .1, 1, 0);
+  }
+}
+function bake() {
+  zb.fill(-1e9);
+  pix.fill(CLEAR);
+  for (let iy = 0; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+    const g = unproject(ix + .5, iy + .5), i = iy * W + ix, c = groundColor(g.x, g.y, ix, iy, i);
+    if (!c) continue;
+    pix[i] = c; ground[i] = 1;
+    zb[i] = (g.x + g.y) / R2 * COS;
+  }
+  growGrass();
+  groundZ.set(zb);
+
+  // the hoop: padded post, arm and brace, backboard, rim
+  box(POLE.x0 - .08, POLE.y0 - .08, 0, POLE.x1 + .08, POLE.y1 + .08, 1.3, C_PAD, 3);
+  box(POLE.x0, POLE.y0, 1.3, POLE.x1, POLE.y1, POLE.z1, C_POLE, 2);
+  box(ARM.x0, ARM.y0, ARM.z0, ARM.x1, ARM.y1, ARM.z1, C_POLE, 5);
+  capsule([POLE.x1, 0, 3.25], [BOARD.x0, 0, 3.98], .045, .045, () => C_POLE, 'solid');
+  drawBoard();
+  box(BOARD.x1, -.07, RIM_Z - .12, RIM_X - RIM_R + .01, .07, RIM_Z - .03, C_RIM, 1);
+  drawRim();
+  for (let z = .2; z <= POLE.z1; z += .1) castShadow(-6.66, 0, z, .17);
+  for (let x = ARM.x0; x <= ARM.x1; x += .1) castShadow(x, 0, 4.03, .1);
+  for (let y = BOARD.y0; y <= BOARD.y1; y += .1) for (let z = BOARD.z0; z <= BOARD.z1; z += .1) castShadow(-5.46, y, z, .11);
+  for (let a = 0; a < 6.283; a += .15) castShadow(RIM_X + Math.cos(a) * RIM_R, Math.sin(a) * RIM_R, RIM_Z, .05);
+
+  for (const s of SPOTS) drawRackFrame(s);
+
+  // bench, bag and a bottle on the far sideline
+  const BX = -1.45;
+  box(BX, -7.75, .46, BX + 2, -7.25, .56, C_WOOD, 3);
+  box(BX, -7.88, .66, BX + 2, -7.78, 1.12, C_WOOD_D, 4);
+  for (const x of [BX + .15, BX + 1.75]) box(x, -7.8, 0, x + .12, -7.3, .46, C_POLE, 5);
+  box(BX + .25, -7.6, .56, BX + .95, -7.3, .84, C_BAG, 6);
+  for (let x = BX; x <= BX + 2; x += .25) { castShadow(x, -7.5, .5, .3); castShadow(x, -7.83, .9, .12); }
+  castShadow(BX + .6, -7.45, .7, .35);
+  capsule([BX + 2.35, -6.95, .05], [BX + 2.35, -6.95, .42], .1, .07, () => C_BOTTLE, 'gloss');
+  castShadow(BX + 2.35, -6.95, .25, .12);
+
+  growTree(-7.35, 5.3, .86, 440, 0);
+  growTree(3.35, -6.95, .66, 300, 99);
+
+  bakeOcclusion();
+  staticShadow.set(shadowMask);
+  applyShadows(groundZ);
+  bakedPix.set(pix);
+  bakedZ.set(zb);
+}
+
+/* ================= ball ================= */
+function drawBall(x, y, z, spin, svx, svy, money) {
+  const p = project(x, y, z), rp = BALL_R * S;
+  let ax = -svy, ay = svx;
+  const al = Math.hypot(ax, ay);
+  if (al < 1e-4) { ax = .8; ay = .6; } else { ax /= al; ay /= al; }
+  // spin about an axis in the screen plane, square to the motion, so the seams roll the right way
+  const c = Math.cos(spin), s = Math.sin(spin), t = 1 - c;
+  const m00 = c + ax * ax * t, m01 = ax * ay * t, m02 = ay * s;
+  const m10 = ax * ay * t, m11 = c + ay * ay * t, m12 = -ax * s;
+  const m20 = -ay * s, m21 = ax * s, m22 = c;
+  const ramp = rampOf(BALL_C), seam = rampOf(SEAM_C);
+  const y0 = Math.max(0, Math.floor(p.sy - rp)), y1 = Math.min(H - 1, Math.ceil(p.sy + rp));
+  const x0 = Math.max(0, Math.floor(p.sx - rp)), x1 = Math.min(W - 1, Math.ceil(p.sx + rp));
+  for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
+    const dx = (ix + .5 - p.sx) / rp, dy = (iy + .5 - p.sy) / rp, nn = dx * dx + dy * dy;
+    if (nn > 1) continue;
+    const nz = Math.sqrt(1 - nn), d = p.d + BALL_R * nz, i = iy * W + ix;
+    if (d <= zb[i]) continue;
+    let l = clamp(-.55 * dx - .6 * dy + .58 * nz, 0, 1);
+    if (dy > .35) l = Math.max(l, .12 + dy * .24);
+    const lvl = clamp(Math.floor(l * 4.4 + .2), 1, 4);
+    const qx = m00 * dx + m01 * dy + m02 * nz, qy = m10 * dx + m11 * dy + m12 * nz, qz = m20 * dx + m21 * dy + m22 * nz;
+    let col;
+    if (money) col = rampOf(MONEY_C[qy < -.33 ? 0 : qy > .33 ? 2 : 1])[lvl];
+    else col = Math.abs(qx) < .14 || Math.abs(qz) < .14 ? seam[Math.max(1, lvl - 1)] : ramp[lvl];
+    zb[i] = d;
+    pix[i] = col;
+  }
+}
+const screenVel = (vx, vy, vz) => [(vx - vy) / R2 * S, ((vx + vy) / R2 * SIN - vz * COS) * S];
+
+/* ================= net ================= */
+const NET = { ox: 0, oy: 0, oz: 0, fl: 0, vx: 0, vy: 0, vz: 0, vf: 0 };
+const NET_LEVELS = [[1, 0], [.86, -.2], [.75, -.4], [.67, -.58]], NET_N = 14;
+function stepNet(dt) {
+  const k = 120, c = 9;
+  for (const [o, v] of [['ox', 'vx'], ['oy', 'vy'], ['oz', 'vz'], ['fl', 'vf']]) {
+    NET[v] += (-k * NET[o] - c * NET[v]) * dt;
+    NET[o] += NET[v] * dt;
+  }
+}
+function netPoint(j, k) {
+  const [rf, dz] = NET_LEVELS[j], f = j / 3, a = (k + j * .5) / NET_N * 6.2832;
+  const r = RIM_R * rf * (1 + NET.fl * f * .5) - (j ? 0 : .01);
+  return [RIM_X + Math.cos(a) * r + NET.ox * f, Math.sin(a) * r + NET.oy * f, RIM_Z - RIM_T + dz + NET.oz * f];
+}
+function drawNet() {
+  const mid = project(RIM_X, 0, RIM_Z - .3).d;
+  const line = (a, b) => {
+    const pa = project(a[0], a[1], a[2]), pb = project(b[0], b[1], b[2]);
+    const n = Math.ceil(Math.hypot(pb.sx - pa.sx, pb.sy - pa.sy) * 1.5) + 1;
+    for (let s = 0; s <= n; s++) {
+      const t = s / n, x = lerp(a[0], b[0], t), y = lerp(a[1], b[1], t), z = lerp(a[2], b[2], t);
+      plot(x, y, z, project(x, y, z).d > mid ? NET_FRONT : NET_BACK);
+    }
+  };
+  for (let j = 0; j < 3; j++) for (let k = 0; k < NET_N; k++) {
+    const a = netPoint(j, k);
+    line(a, netPoint(j + 1, k));
+    line(a, netPoint(j + 1, (k + NET_N - 1) % NET_N));
+  }
+}
+
+/* ================= pixel text ================= */
+const FONT = {
+  '+': ['...', '.X.', 'XXX', '.X.', '...'], '0': ['XXX', 'X.X', 'X.X', 'X.X', 'XXX'], '1': ['.X.', 'XX.', '.X.', '.X.', 'XXX'],
+  '2': ['XXX', '..X', 'XXX', 'X..', 'XXX'], '3': ['XXX', '..X', '.XX', '..X', 'XXX'],
+};
+function drawText(text, cx, top, fill, k = 2) {
+  const cells = [];
+  let x = Math.round(cx - (text.length * 4 - 1) * k / 2);
+  for (const ch of text) {
+    const g = FONT[ch];
+    if (g) g.forEach((row, yy) => [...row].forEach((v, xx) => {
+      if (v === 'X') for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) cells.push([x + xx * k + a, top + yy * k + b]);
+    }));
+    x += 4 * k;
+  }
+  for (const [px, py] of cells) for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) dot(px + ox, py + oy, INK);
+  for (const [px, py] of cells) dot(px, py, fill);
+}
+
+/* ================= game state ================= */
+const DURATION = 50, SHOT_ANGLE = .94, BAND = .06, DEAD = .035, AIM_LONG = .07;
+const RELEASE = .12, SHOOT_T = .42, RELOAD_T = .3, BEST_KEY = 'three-point-best';
+function loadBest() { try { return +localStorage.getItem(BEST_KEY) || 0; } catch (e) { return 0; } }
+function saveBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) { /* storage may be off */ } }
+const G = { best: loadBest() };
+function reset() {
+  Object.assign(G, {
+    phase: 'reload', phaseT: 0, time: G.time || 0, clock: DURATION, running: false, timeUp: false, started: false,
+    rack: 0, k: 0, taken: [0, 0, 0, 0, 0], results: SPOTS.map(() => [0, 0, 0, 0, 0]),
+    score: 0, streak: 0, misses: 0, power: 0, chargeT: 0, target: .6, sweep: .8,
+    jitter: SPOTS.map(() => (Math.random() - .5) * .14),
+    sx: SPOTS[0].x, sy: SPOTS[0].y, yaw: 0, runPhase: 0, from: null, to: null, moveDur: 1,
+    balls: [], popups: [], pressing: false, released: false, shotDelta: 0, cheer: 0, newBest: false, lastTick: 99,
+  });
+  G.yaw = hoopYaw(G.sx, G.sy);
+  for (const k in NET) NET[k] = 0;
+  startReload();
+  setStatus('hold, let go when the bar hits the green');
+  renderHud();
+}
+const hoopYaw = (x, y) => Math.atan2(-y, RIM_X - x);
+function lerpAngle(a, b, t) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t; }
+function setPhase(p) { G.phase = p; G.phaseT = 0; }
+function toLocal(w) {
+  const fx = Math.cos(G.yaw), fy = Math.sin(G.yaw), dx = w[0] - G.sx, dy = w[1] - G.sy;
+  return [dx * fx + dy * fy, -dx * fy + dy * fx, w[2]];
+}
+function startReload() {
+  G.yaw = hoopYaw(G.sx, G.sy);
+  G.grab = toLocal(rackBall(G.rack, G.k));
+  G.taken[G.rack] = G.k + 1;
+  const money = G.k === 4;
+  const s = SPOTS[G.rack], D = Math.hypot(s.x - RIM_X, s.y);
+  G.target = clamp(.5 + (D - 5.2) * .16 + G.jitter[G.rack] + (money ? .05 : 0), .42, .88);
+  // the bar speeds up rack by rack, and a little more for the money ball
+  G.sweep = (.8 - G.rack * .03) * (money ? .88 : 1);
+  setPhase('reload');
+}
+function beginCharge() {
+  if (G.timeUp) return;
+  if (!G.started) { G.started = true; G.running = true; }
+  G.chargeT = 0; G.power = 0;
+  setPhase('charge');
+}
+function shoot() {
+  G.released = false;
+  G.shotDelta = G.power - G.target;
+  setPhase('shoot');
+  sound('release');
+}
+function launch() {
+  G.released = true;
+  const pose = shooterPose(RELEASE);
+  const fx = Math.cos(G.yaw), fy = Math.sin(G.yaw);
+  const b0 = pose.ball, x = G.sx + fx * b0[0] - fy * b0[1], y = G.sy + fy * b0[0] + fx * b0[1], z = b0[2] + (pose.z || 0);
+  // aim a touch past the centre of the rim, as shooters do, so short and long misses are equally likely
+  const dx = RIM_X - x, dy = -y, D = Math.hypot(dx, dy) + AIM_LONG, dz = RIM_Z - z;
+  const ca = Math.cos(SHOT_ANGLE), ta = Math.tan(SHOT_ANGLE);
+  const v = Math.sqrt(GRAV * D * D / (2 * ca * ca * Math.max(.5, D * ta - dz)));
+  const delta = G.shotDelta, off = Math.sign(delta) * Math.max(0, Math.abs(delta) - DEAD);
+  // the further off, the faster it grows, so a bar held to the top never banks in by habit
+  const k = 1 + off * .25 + off * Math.abs(off) * .6 + delta * .02;
+  const h = Math.atan2(dy, dx) + (Math.random() - .5) * .01 + (Math.random() - .5) * Math.abs(delta) * .12;
+  const money = G.k === 4;
+  G.balls.push({
+    x, y, z, pz: z, vx: Math.cos(h) * v * ca * k, vy: Math.sin(h) * v * ca * k, vz: v * Math.sin(SHOT_ANGLE) * k,
+    spin: 0, money, rack: G.rack, k: G.k, delta, resolved: false, touched: false, age: 0,
+  });
+}
+function afterShot() {
+  if (G.timeUp) return setPhase('idle');
+  G.k++;
+  if (G.k < 5) return startReload();
+  G.k = 0; G.rack++;
+  if (G.rack >= SPOTS.length) { G.rack = SPOTS.length - 1; G.k = 5; return setPhase('idle'); }
+  G.from = [G.sx, G.sy]; G.to = [SPOTS[G.rack].x, SPOTS[G.rack].y];
+  G.moveDur = Math.hypot(G.to[0] - G.from[0], G.to[1] - G.from[1]) / 6.5 + .15;
+  setPhase('move');
+  renderHud();
+}
+function scored(b) {
+  b.resolved = true;
+  const pts = b.money ? 2 : 1;
+  G.score += pts; G.streak++;
+  G.results[b.rack][b.k] = 1;
+  G.popups.push({ text: '+' + pts, t: 0, money: b.money });
+  NET.vz -= 3.4; NET.vf += 4; NET.vx += b.vx * .3; NET.vy += b.vy * .3;
+  if (!b.touched) sound('swish');
+  sound(b.money ? 'money' : 'score');
+  if (b.money || G.streak >= 3) G.cheer = 1.1;
+  if (!G.timeUp) setStatus(b.money ? 'money ball, 2 points' : G.streak >= 3 ? G.streak + ' in a row' : b.touched ? 'rolled in' : 'swish');
+  renderHud();
+}
+function missed(b) {
+  b.resolved = true;
+  G.results[b.rack][b.k] = -1;
+  G.streak = 0; G.misses++;
+  if (!G.timeUp) {
+    const d = b.delta;
+    setStatus(Math.abs(d) <= BAND ? 'in and out' : d < 0 ? (G.misses < 3 ? 'short · let go in the green' : 'short') : (G.misses < 3 ? 'long · let go a little sooner' : 'long'));
+  }
+  renderHud();
+}
+function finish() {
+  setPhase('over');
+  G.newBest = G.score > G.best;
+  if (G.newBest) { G.best = G.score; saveBest(G.best); }
+  const all = G.results.every(r => r.every(v => v !== 0));
+  const head = all && !G.timeUp ? 'all racks done' : 'time';
+  setStatus(G.newBest ? 'new best: ' + G.score + ' points · tap to play again' : head + ' · ' + G.score + ' points · best ' + G.best + ' · tap to play again');
+  showOver(all && !G.timeUp ? 'All racks!' : "Time's up", G.score + ' points' + (G.newBest ? ' · new best' : ' · best ' + G.best));
+  renderHud();
+}
+
+/* ================= physics ================= */
+function hitRim(b) {
+  const rx = b.x - RIM_X, ry = b.y, hd = Math.hypot(rx, ry) || 1e-6;
+  let nx = b.x - (RIM_X + rx / hd * RIM_R), ny = b.y - ry / hd * RIM_R, nz = b.z - RIM_Z;
+  const d = Math.hypot(nx, ny, nz), min = BALL_R + RIM_T;
+  if (d >= min || d < 1e-6) return;
+  nx /= d; ny /= d; nz /= d;
+  b.x += nx * (min - d); b.y += ny * (min - d); b.z += nz * (min - d);
+  const vn = b.vx * nx + b.vy * ny + b.vz * nz;
+  if (vn < 0) {
+    b.vx -= 1.5 * vn * nx; b.vy -= 1.5 * vn * ny; b.vz -= 1.5 * vn * nz;
+    // iron is never quite round: a small random kick keeps rim rolls from repeating
+    const kick = -vn * .14;
+    b.vx = b.vx * .93 + (Math.random() - .5) * kick; b.vy = b.vy * .93 + (Math.random() - .5) * kick; b.vz *= .93;
+    if (-vn > .5) {
+      sound('rim', Math.min(1, -vn / 7));
+      NET.vx += (Math.random() - .5) * 1.6; NET.vy += (Math.random() - .5) * 1.6;
+    }
+    b.touched = true;
+  }
+  // a ball balanced on the iron always falls one way or the other
+  if (Math.hypot(b.vx, b.vy, b.vz) < .4) { b.vx += (Math.random() - .5) * .8; b.vy += (Math.random() - .5) * .8; }
+}
+function hitBox(b, c) {
+  const qx = clamp(b.x, c.x0, c.x1), qy = clamp(b.y, c.y0, c.y1), qz = clamp(b.z, c.z0, c.z1);
+  let nx = b.x - qx, ny = b.y - qy, nz = b.z - qz;
+  const d = Math.hypot(nx, ny, nz);
+  if (d >= BALL_R) return;
+  if (d < 1e-6) { nx = 1; ny = 0; nz = 0; b.x = c.x1; } else { nx /= d; ny /= d; nz /= d; }
+  const push = BALL_R - Math.max(d, 0);
+  b.x += nx * push; b.y += ny * push; b.z += nz * push;
+  const vn = b.vx * nx + b.vy * ny + b.vz * nz;
+  if (vn >= 0) return;
+  b.vx -= (1 + c.bounce) * vn * nx; b.vy -= (1 + c.bounce) * vn * ny; b.vz -= (1 + c.bounce) * vn * nz;
+  b.vx *= .92; b.vy *= .92; b.vz *= .92;
+  if (nz > .9 && Math.hypot(b.vx, b.vy) < .3) b.vx += .5;
+  if (-vn > .6) { sound(c.sound, Math.min(1, -vn / 8)); b.touched = true; }
+}
+function stepBall(b, dt) {
+  b.pz = b.z; b.age += dt;
+  const land = onIsland(b.x, b.y);
+  const resting = land && b.z <= BALL_R + 1e-4 && b.vz <= 0;
+  if (!resting) { b.vz -= GRAV * dt; b.z += b.vz * dt; }
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  const rx = b.x - RIM_X, hd = Math.hypot(rx, b.y);
+  // the net funnels and slows a ball dropping through it
+  if (hd < RIM_R && b.z < RIM_Z && b.z > RIM_Z - .6) {
+    const k = Math.min(1, dt * 5);
+    b.vx -= (b.vx + rx * 3) * k; b.vy -= (b.vy + b.y * 3) * k; b.vz *= 1 - dt * 1.6;
+  }
+  if (!b.resolved && b.pz >= RIM_Z && b.z < RIM_Z && hd < RIM_R) scored(b);
+  hitRim(b);
+  for (const c of COLLIDERS) hitBox(b, c);
+  if (land && b.z < BALL_R && b.pz >= BALL_R - .25) {
+    b.z = BALL_R;
+    if (b.vz < -1.2) { sound('bounce', Math.min(1, -b.vz / 9)); b.vz = -b.vz * .72; b.vx *= .9; b.vy *= .9; }
+    else b.vz = 0;
+  }
+  if (resting) {
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp > 0) {
+      const n = Math.max(0, sp - 1.5 * dt);
+      if (n < .02) { b.vx = 0; b.vy = 0; } else { b.vx *= n / sp; b.vy *= n / sp; }
+    }
+    b.spin += sp / BALL_R * dt;
+  } else b.spin += dt * 11;
+  if (!b.resolved && ((b.z < RIM_Z - .35 && b.vz < 0) || b.age > 7)) missed(b);
+}
+function collideBalls() {
+  const list = G.balls;
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    const a = list[i], b = list[j];
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dd = Math.hypot(dx, dy, dz);
+    if (dd >= BALL_R * 2 || dd === 0) continue;
+    const nx = dx / dd, ny = dy / dd, nz = dz / dd, o = (BALL_R * 2 - dd) / 2;
+    a.x -= nx * o; a.y -= ny * o; a.z -= nz * o; b.x += nx * o; b.y += ny * o; b.z += nz * o;
+    if (a.z < BALL_R) a.z = BALL_R;
+    if (b.z < BALL_R) b.z = BALL_R;
+    const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny + (b.vz - a.vz) * nz;
+    if (rel >= 0) continue;
+    const imp = -(1 + .7) * rel / 2;
+    a.vx -= imp * nx; a.vy -= imp * ny; a.vz -= imp * nz;
+    b.vx += imp * nx; b.vy += imp * ny; b.vz += imp * nz;
+  }
+}
+
+/* ================= update ================= */
+const tri = u => 1 - Math.abs((u % 2) - 1);
+function update(dt) {
+  G.time += dt; G.phaseT += dt;
+  if (G.running) {
+    G.clock -= dt;
+    const left = Math.ceil(G.clock);
+    if (left <= 5 && left < G.lastTick && left > 0) { G.lastTick = left; sound('tick'); }
+    if (G.clock <= 0) {
+      G.clock = 0; G.running = false; G.timeUp = true;
+      sound('buzzer');
+      if (G.phase !== 'shoot') setPhase('idle');
+      setStatus('time');
+    }
+  }
+  if (G.phase === 'move') {
+    const u = clamp(G.phaseT / G.moveDur, 0, 1), k = ease(u);
+    G.sx = lerp(G.from[0], G.to[0], k); G.sy = lerp(G.from[1], G.to[1], k);
+    G.runPhase += dt * 15;
+    const run = Math.atan2(G.to[1] - G.from[1], G.to[0] - G.from[0]);
+    G.yaw = u < .25 ? lerpAngle(hoopYaw(...G.from), run, u / .25) : lerpAngle(run, hoopYaw(G.sx, G.sy), clamp((u - .72) / .28, 0, 1));
+    if (u >= 1) startReload();
+  } else if (G.phase === 'reload') {
+    if (G.phaseT >= RELOAD_T) {
+      setPhase('set');
+      if (G.pressing) beginCharge();
+    }
+  } else if (G.phase === 'charge') {
+    G.chargeT += dt;
+    G.power = tri(G.chargeT / G.sweep);
+  } else if (G.phase === 'shoot') {
+    if (!G.released && G.phaseT >= RELEASE) launch();
+    if (G.phaseT >= SHOOT_T) afterShot();
+  }
+  const N = 8, h = dt / N;
+  for (let s = 0; s < N; s++) {
+    for (const b of G.balls) stepBall(b, h);
+    collideBalls();
+    stepNet(h);
+  }
+  for (let i = G.balls.length - 1; i >= 0; i--) {
+    const b = G.balls[i];
+    if (b.z < -6) { if (!b.resolved) missed(b); G.balls.splice(i, 1); }
+  }
+  for (const p of G.popups) p.t += dt;
+  G.popups = G.popups.filter(p => p.t < 1.1);
+  G.cheer = Math.max(0, G.cheer - dt);
+  const shotsDone = G.timeUp || G.rack === SPOTS.length - 1 && G.k >= 5;
+  if (G.phase !== 'over' && G.phase !== 'shoot' && shotsDone && G.balls.every(b => b.resolved)) finish();
+  renderClock();
+}
+
+/* ================= poses ================= */
+const chestBall = fr => [fr.shA + .34, 0, fr.shZ - .34];
+const setBall = fr => [fr.shA + .14, .12, fr.shZ + .46];
+const relBall = fr => [fr.shA + .3, .12, fr.shZ + .86];
+const holdHands = B => ({ hR: [B[0] - .02, B[1] + .21, B[2] - .02], hL: [B[0] - .02, B[1] - .21, B[2] - .02] });
+const shotHands = B => ({ hR: [B[0] - .17, B[1] + .02, B[2] - .1], hL: [B[0] + .01, B[1] - .2, B[2] - .02] });
+const mix3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const STAND = { footR: [.12, 0], footL: [-.06, 0] };
+function shooterPose(t = G.phaseT) {
+  const ph = G.phase;
+  if (ph === 'move') {
+    const s = Math.sin(G.runPhase), c = Math.cos(G.runPhase), fr = body(.12, .22);
+    return {
+      z: Math.abs(c) * .07, crouch: .12, lean: .22,
+      footR: [s * .5, Math.max(0, c) * .22], footL: [-s * .5, Math.max(0, -c) * .22],
+      hR: [fr.shA - s * .42, .5, fr.shZ - .62 + Math.abs(s) * .1], hL: [fr.shA + s * .42, -.5, fr.shZ - .62 + Math.abs(s) * .1],
+    };
+  }
+  if (ph === 'reload') {
+    const u = clamp(t / RELOAD_T, 0, 1), e = ease(u), crouch = .35 * Math.sin(Math.PI * u), lean = .25 * Math.sin(Math.PI * u);
+    const fr = body(crouch, lean), B = mix3(G.grab, chestBall(fr), e);
+    B[2] += Math.sin(Math.PI * u) * .25;
+    return { crouch, lean, ball: B, ...holdHands(B), ...STAND };
+  }
+  if (ph === 'set') {
+    const fr = body(.1, .06), B = chestBall(fr);
+    B[2] += Math.sin(G.time * 3) * .015;
+    return { crouch: .1, lean: .06, ball: B, ...holdHands(B), ...STAND };
+  }
+  if (ph === 'charge') {
+    const c = ease(clamp(G.chargeT / .16, 0, 1)), crouch = .1 + .32 * c + G.power * .06, lean = .06 + .04 * c;
+    const fr = body(crouch, lean), B = mix3(chestBall(fr), setBall(fr), c);
+    const a = holdHands(B), b = shotHands(B);
+    return { crouch, lean, ball: B, hR: mix3(a.hR, b.hR, c), hL: mix3(a.hL, b.hL, c), ...STAND };
+  }
+  if (ph === 'shoot') {
+    const u = clamp(t / SHOOT_T, 0, 1), z = .5 * Math.sin(Math.PI * u);
+    const crouch = (.42 + G.power * .06) * (1 - ease(clamp(t / .1, 0, 1))) + .14 * ease(clamp((t - .3) / .12, 0, 1));
+    const fr = body(crouch, .08), lift = Math.sin(Math.PI * u) * .07;
+    const feet = { footR: [.12, lift], footL: [-.04, lift * 1.4] };
+    if (t <= RELEASE) {
+      const B = mix3(setBall(fr), relBall(fr), ease(t / RELEASE));
+      return { z, crouch, lean: .08, ball: B, ...shotHands(B), ...feet };
+    }
+    const rb = relBall(fr);
+    return { z, crouch, lean: .08, hR: [rb[0] + .2, rb[1] - .02, rb[2] - .02], hL: [rb[0] - .04, rb[1] - .3, rb[2] - .25], ...feet };
+  }
+  const fr = body(.04, .03);
+  if (ph === 'over' && G.newBest) {
+    return { z: Math.max(0, Math.sin(G.time * 8)) * .18, crouch: .04, lean: .03, hR: [fr.shA + .1, .5, fr.shZ + .85], hL: [fr.shA + .1, -.5, fr.shZ + .85] };
+  }
+  return { crouch: .04, lean: .03, footR: [.1, 0], footL: [-.1, 0] };
+}
+function fanPose() {
+  const fr = body(.03, .02), breathe = Math.sin(G.time * 1.7) * .01;
+  if (G.cheer > 0) {
+    const hop = Math.max(0, Math.sin(G.cheer * 11)) * .16;
+    return { z: hop, crouch: .03, lean: .02, hR: [fr.shA + .05, .5, fr.shZ + .82], hL: [fr.shA + .05, -.5, fr.shZ + .82] };
+  }
+  return { crouch: .03, lean: .02 + breathe, footR: [.1, 0], footL: [-.1, 0] };
+}
+
+/* ================= drawing ================= */
+function drawMeter() {
+  const ph = G.phase;
+  if (!(ph === 'set' || ph === 'charge' || (ph === 'shoot' && G.phaseT < .55) || (ph === 'reload' && G.phaseT > .15))) return;
+  const p = project(G.sx, G.sy, 1.3), h = 42, x0 = Math.round(p.sx) + 19, yb = Math.round(p.sy) + 8, yt = yb - h;
+  for (let y = yt - 2; y <= yb + 1; y++) for (let x = x0 - 2; x <= x0 + 7; x++) dot(x, y, PAPER);
+  for (let y = yt - 1; y <= yb; y++) for (let x = x0 - 1; x <= x0 + 6; x++) dot(x, y, INK);
+  const flash = ph === 'shoot' && Math.abs(G.shotDelta) <= BAND && Math.floor(G.phaseT * 16) % 2 === 0;
+  for (let row = 0; row < h; row++) {
+    const y = yb - 1 - row, level = (row + .5) / h;
+    const zone = Math.abs(level - G.target) <= BAND, filled = level <= G.power && ph !== 'reload' && ph !== 'set';
+    const c = filled ? (zone ? rgb(86, 168, 80) : SIGNAL) : zone ? rgb(190, 226, 170) : rgb(240, 238, 232);
+    for (let x = x0; x <= x0 + 5; x++) dot(x, y, flash ? PAPER : c);
+  }
+  const ty = yb - 1 - Math.round(G.target * h - .5);
+  for (const [dx, dy] of [[8, 0], [9, -1], [9, 0], [9, 1], [10, -2], [10, -1], [10, 0], [10, 1], [10, 2], [11, -3], [11, -2], [11, -1], [11, 0], [11, 1], [11, 2], [11, 3]]) dot(x0 + dx, ty + dy, INK);
+}
+function drawPopups() {
+  const p = project(RIM_X, 0, RIM_Z + 1);
+  for (const pop of G.popups) {
+    if (pop.t > .8 && Math.floor(pop.t * 14) % 2) continue;
+    drawText(pop.text, p.sx, Math.round(p.sy - 12 - pop.t * 16), pop.money ? rgb(255, 176, 40) : SIGNAL);
+  }
+}
+function draw() {
+  pix.set(bakedPix);
+  zb.set(bakedZ);
+  const held = player(G.sx, G.sy, G.yaw, shooterPose(), SHOOTER);
+  const fanYaw = Math.atan2(G.sy - FAN_POS[1], G.sx - FAN_POS[0]);
+  player(FAN_POS[0], FAN_POS[1], fanYaw, fanPose(), FAN);
+  if (held) {
+    drawBall(held[0], held[1], held[2], G.k * 1.3 + G.rack, 0, 0, G.k === 4);
+    pendingShadows.push(held, BALL_R, held, BALL_R);
+  }
+  for (let r = 0; r < SPOTS.length; r++) for (let k = G.taken[r]; k < 5; k++) {
+    const p = rackBall(r, k);
+    drawBall(p[0], p[1], p[2], r * 1.7 + k * .9, 0, 0, k === 4);
+    castShadow(p[0], p[1], p[2] - BALL_R, BALL_R * .96, 1, 0);
+  }
+  for (const b of G.balls) {
+    const [svx, svy] = screenVel(b.vx, b.vy, b.vz);
+    drawBall(b.x, b.y, b.z, b.spin, svx, svy, b.money);
+    if (b.z > -.5) {
+      castShadow(b.x, b.y, b.z - BALL_R, BALL_R * .96, 1, 0);
+      if (b.z < BALL_R + .1) castShadow(b.x, b.y, 0, BALL_R * .72, 2, 0);
+    }
+  }
+  drawNet();
+  const windT = STILL ? 0 : Math.floor(G.time * WIND_FPS) / WIND_FPS;
+  drawLeaves(windT);
+  drawTufts(windT);
+  flushShadows();
+  applyShadows(bakedZ);
+  shadeEdges();
+  drawMeter();
+  drawPopups();
+  ctx.putImageData(image, 0, 0);
+}
+
+/* ================= hud ================= */
+const nodes = { pts: document.getElementById('pts'), best: document.getElementById('best'), racks: document.getElementById('racks'), clock: document.getElementById('clock'), status: document.getElementById('status') };
+nodes.racks.innerHTML = SPOTS.map(() => '<span class="rack">' + '<i></i><i></i><i></i><i></i><i class="money"></i></span>').join('');
+function renderHud() {
+  nodes.pts.textContent = G.score;
+  nodes.best.textContent = G.best ? 'best ' + G.best : '';
+  [...nodes.racks.children].forEach((rack, r) => [...rack.children].forEach((el, k) => {
+    const v = G.results[r][k];
+    el.classList.toggle('hit', v === 1);
+    el.classList.toggle('miss', v === -1);
+    el.classList.toggle('now', v === 0 && r === G.rack && k === G.k && !G.timeUp && G.phase !== 'over');
+  }));
+}
+let shownClock = '';
+function renderClock() {
+  const c = G.clock, text = c >= 10 ? String(Math.ceil(c)) : c.toFixed(1);
+  if (text !== shownClock) { shownClock = text; nodes.clock.textContent = text; }
+  nodes.clock.classList.toggle('low', c < 10 && G.started);
+}
+let statusText = '';
+function setStatus(text) { if (text !== statusText) { statusText = text; nodes.status.textContent = text; } }
+
+/* ================= input ================= */
+const stage = document.getElementById('stage'), rules = document.getElementById('rules');
+function press() {
+  ensureAudio();
+  if (G.phase === 'over') { if (G.phaseT > .8) reset(); return; }
+  G.pressing = true;
+  if (G.phase === 'set') beginCharge();
+}
+function letGo() {
+  if (!G.pressing) return;
+  G.pressing = false;
+  if (G.phase === 'charge') shoot();
+}
+stage.addEventListener('pointerdown', e => {
+  if (e.button > 0) return;
+  try { stage.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+  canvas.focus({ preventScroll: true });
+  press();
+});
+stage.addEventListener('pointerup', letGo);
+stage.addEventListener('pointercancel', () => { G.pressing = false; if (G.phase === 'charge') setPhase('set'); });
+addEventListener('keydown', e => {
+  if (rules.open || (e.key !== ' ' && e.key !== 'Enter')) return;
+  if (e.target.tagName === 'BUTTON') return;
+  e.preventDefault();
+  if (!e.repeat) press();
+});
+addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') letGo(); });
+addEventListener('blur', () => { G.pressing = false; });
+document.getElementById('rules-open').addEventListener('click', () => rules.showModal());
+rules.addEventListener('click', e => { if (e.target === rules) rules.close(); });
+rules.addEventListener('close', () => canvas.focus({ preventScroll: true }));
+
+/* ================= sound ================= */
+function sound(kind, amt = .6) {
+  if (!audio || muted) return;
+  if (kind === 'bounce') { tone(150, 60, .12, .3 * amt + .02, 'sine'); hiss(.05, 500, .8, .05 * amt); }
+  else if (kind === 'rim') { tone(1250, 1060, .18, .06 * amt + .015, 'square'); tone(1900, 1720, .14, .035 * amt + .01, 'triangle'); }
+  else if (kind === 'board') { tone(280, 120, .09, .2 * amt + .04, 'triangle'); hiss(.06, 900, .6, .07 * amt); }
+  else if (kind === 'swish') hiss(.28, 2600, .6, .2);
+  else if (kind === 'release') tone(320, 200, .07, .03, 'triangle');
+  else if (kind === 'score') { tone(660, 660, .1, .05, 'triangle'); tone(990, 990, .14, .05, 'triangle', .08); }
+  else if (kind === 'money') { tone(784, 784, .1, .06, 'triangle', .1); tone(988, 988, .1, .06, 'triangle', .19); tone(1318, 1318, .22, .06, 'triangle', .28); }
+  else if (kind === 'tick') tone(1100, 1100, .05, .04, 'square');
+  else if (kind === 'buzzer') { tone(170, 165, .8, .09, 'sawtooth'); tone(173, 168, .8, .07, 'square'); }
+}
+const muteButton = document.getElementById('mute');
+muteButton.addEventListener('click', () => {
+  muteButton.blur();
+  muted = !muted;
+  muteButton.textContent = muted ? 'sound off' : 'sound on';
+  muteButton.setAttribute('aria-pressed', String(muted));
+});
+
+/* ================= boot ================= */
+addEventListener('resize', fit);
+fit();
+bake();
+reset();
+let last = performance.now();
+function frame(now) {
+  update(Math.min(.04, (now - last) / 1000));
+  last = now;
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__uclik = { G, update, draw, press, letGo };
+
+</script>
+<script>
+(() => {
+  if (window.parent === window) return;
+  const back = document.getElementById('menu-back');
+  back.hidden = false;
+  const leave = () => window.parent.postMessage({ type: 'pixel-sports-menu' }, '*');
+  back.addEventListener('click', leave);
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) leave(); });
+})();
+</script>
+</body>
+</html>
